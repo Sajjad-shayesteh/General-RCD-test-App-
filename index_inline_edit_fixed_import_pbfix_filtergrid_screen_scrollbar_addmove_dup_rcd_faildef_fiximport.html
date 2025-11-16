@@ -1,0 +1,1560 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>RCD Test Logger + Excel Import</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body { font-family: Arial, sans-serif; background: #f5f5f5; margin: 0; height: 100vh; overflow: auto; }
+
+      .app {
+        /* allow the app to grow wider than the screen so the main screen scrollbar can handle horizontal scroll */
+        overflow-x: visible;
+        max-width: none;
+        width: auto;
+        margin: 20px auto; background: #fff; border-radius: 8px;
+        padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+      }
+
+      h1 { margin-top: 0; }
+      .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+      label { display: block; font-size: 0.75rem; font-weight: 600; margin-bottom: 2px; }
+      select, input[type="text"], input[type="date"], textarea {
+        padding: 5px 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.8rem;
+      }
+      select, input[type="text"], input[type="date"] { min-width: 150px; }
+      button {
+        background: #007acc; color: #fff; border: none; border-radius: 4px;
+        padding: 6px 12px; font-size: 0.8rem; cursor: pointer;
+      }
+      button.secondary { background: #555; }
+      button.small { padding: 4px 8px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 0.78rem; }
+      th, td { border: 1px solid #ddd; padding: 6px 6px; text-align: left; vertical-align: top; }
+      th { background: #f0f0f0; }
+      .actions-bar { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
+      .fail { color: #c00; font-weight: 600; }
+      textarea { width: 100%; min-height: 60px; }
+      .section-title { font-size: 0.9rem; font-weight: 600; margin-top: 14px; }
+      .note { font-size: 0.7rem; color: #666; }
+
+      /* the table’s own scroll remains local (no fixed/sticky) */
+      .table-scroll {
+        width: 100%;
+        /* let the main screen handle horizontal scrolling */
+        overflow-x: visible;
+        overflow-y: hidden;
+        margin-top: 6px;
+      }
+
+      /* keep inline edit fields compact so row height doesn't blow out */
+      .table-scroll input,
+      .table-scroll select {
+        max-width: 120px;
+        height: 26px;
+        padding: 2px 4px;
+        font-size: 0.75rem;
+        box-sizing: border-box;
+      }
+
+      /* Fixed proxy scrollbar at bottom of the viewport */
+      .hscroll-proxy {
+        display: none; /* use the browser's own horizontal scrollbar at the bottom of the screen */
+      }
+      .hscroll-inner {
+        height: 1px;
+      }
+    </style>
+    <script>
+      // fallback in case rcd-data.js is missing
+      window.RCD_DATA = window.RCD_DATA || {};
+    </script>
+    <script src="rcd-data.js"></script>
+  </head>
+  <body>
+    <div class="app">
+      <h1>RCD Test Logger</h1>
+      <p>Select location → board → breaker. Failures auto-fill comment & recommendation.</p>
+      <p style="font-size:0.7rem; color:#555;">Developed by Total Electrical Control Solutions</p>
+
+      <!-- customer / job -->
+      <div class="row">
+        <div>
+          <label for="custName">Customer name</label>
+          <input type="text" id="custName" />
+        </div>
+        <div>
+          <label for="custSite">Customer site address</label>
+          <input type="text" id="custSite" />
+        </div>
+        <div>
+          <label for="jobNumber">Job number</label>
+          <input type="text" id="jobNumber" />
+        </div>
+      </div>
+
+      <!-- SITE STRUCTURE IMPORT -->
+      <div class="section-title" style="margin-bottom:6px;">Import site structure (locations / boards / CBs)</div>
+      <div class="row">
+        <div>
+          <input type="file" id="siteExcelInput" accept=".xlsx,.xls" />
+        </div>
+        <div>
+          <button id="siteImportBtn" class="small">Import site structure</button>
+        </div>
+        <div class="note" style="align-self:center;">
+          Excel can have: Location, Board/Switchboard/DB, CB/Breaker/Circuit (any order). Blank rows will use previous location/board.
+        </div>
+      </div>
+
+      <!-- manual line 1 -->
+      <div class="row">
+        <div>
+          <label for="locationSelect">Location</label>
+          <select id="locationSelect"></select>
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button id="addLocationBtn" class="small">Add</button>
+        </div>
+        <div>
+          <label for="boardSelect">Switchboard</label>
+          <select id="boardSelect"></select>
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button id="addBoardBtn" class="small">Add</button>
+        </div>
+        <div>
+          <label for="cbSelect">CB number</label>
+          <select id="cbSelect"></select>
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button id="addCbBtn" class="small">Add</button>
+        </div>
+        <div>
+          <label for="dateInput">Date inspected</label>
+          <input type="date" id="dateInput" />
+        </div>
+        <div>
+          <label for="ratedInput">Rated trip current (mA)</label>
+          <select id="ratedInput">
+            <option value="30">30 mA</option>
+            <option value="100">100 mA</option>
+            <option value="300">300 mA</option>
+            <option value="500">500 mA</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- manual line 2 -->
+      <div class="row">
+        <div>
+          <label for="tripInput">Trip time (ms)</label>
+          <input type="text" id="tripInput" placeholder="e.g. 180" />
+        </div>
+        <div>
+          <label for="pbSelect">PB test</label>
+          <select id="pbSelect">
+            <option value="">-- Select --</option>
+            <option value="Passed">Passed</option>
+            <option value="Failed">Failed</option>
+          </select>
+        </div>
+        <div>
+          <label for="commentSelect">Comment</label>
+          <select id="commentSelect">
+            <option value="">-- Select --</option>
+            <option value="Injection test failed">Injection test failed</option>
+            <option value="Push button test failed">Push button test failed</option>
+            <option value="Injection and PB test failed">Injection and PB test failed</option>
+            <option value="Circuit is faulty(Not the RCBO)">Circuit is faulty(Not the RCBO)</option>
+            <option value="Removed from the board(doesn’t exist)">Removed from the board(doesn’t exist)</option>
+            <option value="No access to DB / couldn’t test">No access to DB / couldn’t test</option>
+          </select>
+        </div>
+        <div style="align-self:flex-end;">
+          <label>&nbsp;</label>
+          <button id="addTestBtn">Add Test</button>
+        </div>
+      </div>
+
+      
+      <!-- site structure filters (copied style from index.html) -->
+      <div class="row">
+        <div>
+          <label for="filterLocation">Filter location</label>
+          <select id="filterLocation"></select>
+        </div>
+        <div>
+          <label for="filterBoard">Filter board</label>
+          <select id="filterBoard"></select>
+        </div>
+        <div style="align-self:flex-end;">
+          <label>&nbsp;</label>
+          <button id="applyFilterBtn" class="small">Apply filter</button>
+        </div>
+      </div>
+
+      <div class="section-title">Filtered boards and circuits</div>
+      <div class="table-scroll" id="filterGridScroll">
+        <table id="filterGridTable">
+          <thead>
+            <tr>
+              <th>Location</th>
+              <th>Switchboard</th>
+              <th>CB</th>
+              <th>Date</th>
+              <th>Rated (mA)</th>
+              <th>Trip (ms)</th>
+              <th>PB test</th>
+              <th>Comment</th>
+              <th>Recommendation</th>
+              <th>Additional info</th>
+              <th>Result</th>
+              <th>Add</th>
+            </tr>
+          </thead>
+          <tbody id="filterGridBody">
+            <tr>
+              <td colspan="12">Use the filters above and click "Apply filter" to see boards and circuits.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+<div class="section-title">Recommendation</div>
+      <textarea id="recommendationBox" placeholder="Will auto-fill when a test fails, or type your own."></textarea>
+
+      <div class="section-title">Additional information</div>
+      <textarea id="additionalInfo" placeholder="Part number, photo taken, failed – replace RCBO, etc."></textarea>
+
+      <!-- TEST IMPORT -->
+      <div class="section-title" style="margin-bottom:6px;">Import test results from Excel</div>
+      <div class="row">
+        <div>
+          <input type="file" id="excelInput" accept=".xlsx,.xls" />
+        </div>
+        <div>
+          <button id="importBtn" class="small">Import tests</button>
+        </div>
+        <div class="note" style="align-self:center;">
+          Blank board/CB rows will use the previous row's location/board.
+        </div>
+      </div>
+
+      <div class="actions-bar">
+        <button id="exportCsvBtn" class="secondary">Export CSV</button>
+        <button id="exportExcelBtn" class="secondary">Export Excel</button>
+        <button id="exportPdfBtn" class="secondary">Export PDF</button>
+      </div>
+
+      <h2 style="margin-top:20px;">Logged Tests (<span id="loggedCount">0</span>)</h2>
+
+      <div class="table-scroll" id="logTableScroll">
+        <table id="logTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Item #</th>
+              <th>Location</th>
+              <th>Board</th>
+              <th>CB</th>
+              <th>Date</th>
+              <th>Rated (mA)</th>
+              <th>Trip (ms)</th>
+              <th>PB test</th>
+              <th>Comment</th>
+              <th>Recommendation</th>
+              <th>Result</th>
+              <th>Additional Info</th>
+              <th>Edit</th>
+              <th>Delete</th>
+            </tr>
+          </thead>
+          <tbody id="logBody">
+            <tr><td colspan="15">No tests yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Fixed proxy scrollbar at bottom of the window -->
+    <div class="hscroll-proxy" id="hscrollProxy" aria-hidden="true">
+      <div class="hscroll-inner" id="hscrollInner"></div>
+    </div>
+
+    <!-- libs -->
+    <script src="xlsx.full.min.js"></script>
+    <script src="jspdf.umd.min.js"></script>
+    <script src="jspdf.plugin.autotable.js"></script>
+
+    <script>
+      window.onload = function() {
+        /* ===== constants ===== */
+        const TRIP_LIMITS = { 30: 300, 100: 300, 300: 300, 500: 300 };
+        const COMMENT_RECO = {
+          "Injection test failed": "Replace the RCBO",
+          "Push button test failed": "Replace the RCBO",
+          "Injection and PB test failed": "Replace the RCBO",
+          "Circuit is faulty(Not the RCBO)": "Investigate the fault in the circuit",
+          "No access to DB / couldn’t test": "Return to site when DB is accessible / reschedule",
+          "Removed from the board(doesn’t exist)": "Removed from the board(doesn’t exist)"
+        };
+        const HEADER_ALIASES = {
+          itemNumber: ["item","item number","item #","id"],
+          location: ["location","site","area"],
+          board: ["switchboard","board","db","distribution board"],
+          cb: ["cb","cb number","c/b","breaker","circuit","rcd"],
+          date: ["date","date inspected","test date"],
+          rated: ["rated","rated (ma)","rated ma","rcd rating","rating"],
+          trip: ["trip","trip (ms)","trip ms","time","operating time","trip time"],
+          pb: ["pb","pb test","push button","push button test"],
+          comment: ["comment","fault","remarks","notes"],
+          recommendation: ["recommendation","action","follow up"],
+          result: ["result","status","outcome"],
+          additional: ["additional","additional info","extra","note","notes"]
+        };
+        const SITE_HEADER_ALIASES = {
+          location: ["location","site","area"],
+          board: ["switchboard","board","db","distribution board","panel"],
+          cb: ["cb","cb number","c/b","breaker","circuit","rcd","way"]
+        };
+        const RCD_INTRO = [
+          "Residual Current Device (RCD) testing is carried out to verify that each RCD will trip fast enough and at the correct current to protect people from electric shock and reduce the risk of electrical fire.",
+          "Our testing is performed in line with the relevant Australian/New Zealand standards, typically AS/NZS 3760 (in-service safety inspection and testing), AS/NZS 3000 (Wiring Rules) and, where applicable, AS/NZS 3017 (electrical installations—testing and verification). These standards set out the test methods, trip times and documentation requirements.",
+          "Our role is to test, record the results and identify any RCDs that do not meet the required performance. If an RCD fails any part of the test, it is considered non-compliant and unsafe for continued service. It is the customer’s responsibility to arrange repair or replacement of any failed RCDs and to ensure the installation is brought back into compliance.",
+          "Test frequency (typical): Push-button test at least every 6 months (more often in harsh or high-risk environments as per AS/NZS 3760 tables); injection/operating-time test at least every 12 months, or to the site-specific/industry-specific schedule."
+        ];
+
+        /* ===== dom ===== */
+        const locationSelect = document.getElementById('locationSelect');
+        const boardSelect   = document.getElementById('boardSelect');
+        const cbSelect      = document.getElementById('cbSelect');
+        const dateInput     = document.getElementById('dateInput');
+        const ratedInput    = document.getElementById('ratedInput');
+        const tripInput     = document.getElementById('tripInput');
+        const pbSelect      = document.getElementById('pbSelect');
+        const commentSelect = document.getElementById('commentSelect');
+        const recommendationBox = document.getElementById('recommendationBox');
+        const additionalInfo    = document.getElementById('additionalInfo');
+        const logBody        = document.getElementById('logBody');
+        const loggedCount    = document.getElementById('loggedCount');
+        const addTestBtn     = document.getElementById('addTestBtn');
+        const excelInput     = document.getElementById('excelInput');
+        const importBtn      = document.getElementById('importBtn');
+        const siteExcelInput = document.getElementById('siteExcelInput');
+        const siteImportBtn  = document.getElementById('siteImportBtn');
+        const custName       = document.getElementById('custName');
+        const custSite       = document.getElementById('custSite');
+        const jobNumber      = document.getElementById('jobNumber');
+
+                const filterLocationSelect = document.getElementById('filterLocation');
+        const filterBoardSelect   = document.getElementById('filterBoard');
+        const applyFilterBtn      = document.getElementById('applyFilterBtn');
+        const filterGridBody      = document.getElementById('filterGridBody');
+
+        const tableScroll = document.getElementById('logTableScroll');
+        const gridScroll  = document.getElementById('filterGridScroll');
+        const proxy = document.getElementById('hscrollProxy');
+        const proxyInner = document.getElementById('hscrollInner');
+
+        let LOGGED = [];
+        let editingIndex = null;
+        let tableEditingIndex = null;
+        let ITEM_COUNTER = 1; // counter for item numbers
+        let currentFilterLocation = "";
+        let currentFilterBoard = "";
+
+        /* ===== proxy scrollbar sync (global horizontal bar) ===== */
+        function updateProxyWidth() {
+          const logWidth  = tableScroll ? tableScroll.scrollWidth : 0;
+          const gridWidth = gridScroll  ? gridScroll.scrollWidth  : 0;
+          const maxWidth  = Math.max(logWidth, gridWidth);
+          proxyInner.style.width = maxWidth + 'px';
+          // keep proxy aligned with whichever table currently has width (default to logged table)
+          if (tableScroll && logWidth) {
+            proxy.scrollLeft = tableScroll.scrollLeft;
+          } else if (gridScroll && gridWidth) {
+            proxy.scrollLeft = gridScroll.scrollLeft;
+          }
+        }
+
+        let syncingFrom = null;
+
+        proxy.addEventListener('scroll', () => {
+          if (syncingFrom === 'proxy') return;
+          syncingFrom = 'proxy';
+          const x = proxy.scrollLeft;
+          if (tableScroll) tableScroll.scrollLeft = x;
+          if (gridScroll)  gridScroll.scrollLeft  = x;
+          syncingFrom = null;
+        });
+
+        if (tableScroll) {
+          tableScroll.addEventListener('scroll', () => {
+            if (syncingFrom === 'table') return;
+            syncingFrom = 'table';
+            const x = tableScroll.scrollLeft;
+            proxy.scrollLeft = x;
+            if (gridScroll) gridScroll.scrollLeft = x;
+            syncingFrom = null;
+          });
+        }
+
+        if (gridScroll) {
+          gridScroll.addEventListener('scroll', () => {
+            if (syncingFrom === 'grid') return;
+            syncingFrom = 'grid';
+            const x = gridScroll.scrollLeft;
+            proxy.scrollLeft = x;
+            if (tableScroll) tableScroll.scrollLeft = x;
+            syncingFrom = null;
+          });
+        }
+
+        window.addEventListener('resize', updateProxyWidth);
+
+        /* ===== helpers for header matching ===== */
+        function matchHeaderCell(cell) {
+          const text = String(cell).trim().toLowerCase();
+          if (!text) return null;
+          for (const key in HEADER_ALIASES) {
+            for (const cand of HEADER_ALIASES[key]) {
+              if (text === cand) return key;
+              if (text.startsWith(cand)) return key;
+              if (text.includes(cand)) return key;
+            }
+          }
+          return null;
+        }
+        function matchSiteHeaderCell(cell) {
+          const text = String(cell).trim().toLowerCase();
+          if (!text) return null;
+          for (const key in SITE_HEADER_ALIASES) {
+            for (const cand of SITE_HEADER_ALIASES[key]) {
+              if (text === cand) return key;
+              if (text.startsWith(cand)) return key;
+              if (text.includes(cand)) return key;
+            }
+          }
+          return null;
+        }
+
+        /* ===== helper: reset counter from logged ===== */
+        function resetItemCounterFromLogged() {
+          let maxItem = 0;
+          LOGGED.forEach(r => {
+            if (r.itemNumber && Number(r.itemNumber) > maxItem) {
+              maxItem = Number(r.itemNumber);
+            }
+          });
+          ITEM_COUNTER = maxItem + 1;
+        }
+
+        /* ===== dropdowns ===== */
+        function populateLocations() {
+          locationSelect.innerHTML = "";
+          const locs = Object.keys(window.RCD_DATA);
+          if (!locs.length) {
+            locationSelect.innerHTML = '<option value="">-- no locations --</option>';
+            boardSelect.innerHTML = "";
+            cbSelect.innerHTML = "";
+            return;
+          }
+          locs.forEach(l => {
+            const opt = document.createElement('option');
+            opt.value = l; opt.textContent = l;
+            locationSelect.appendChild(opt);
+          });
+          populateBoards();
+        }
+        function populateBoards() {
+          boardSelect.innerHTML = "";
+          cbSelect.innerHTML = "";
+          const loc = locationSelect.value;
+          if (!loc || !window.RCD_DATA[loc]) {
+            boardSelect.innerHTML = '<option value="">-- no boards --</option>';
+            return;
+          }
+          Object.keys(window.RCD_DATA[loc]).forEach(b => {
+            const opt = document.createElement('option');
+            opt.value = b; opt.textContent = b;
+            boardSelect.appendChild(opt);
+          });
+          populateCBs();
+        }
+        function populateCBs() {
+          cbSelect.innerHTML = "";
+          const loc = locationSelect.value;
+          const board = boardSelect.value;
+          if (!loc || !window.RCD_DATA[loc] || !board || !window.RCD_DATA[loc][board]) {
+            cbSelect.innerHTML = '<option value="">-- no CBs --</option>';
+            return;
+          }
+          window.RCD_DATA[loc][board].forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c; opt.textContent = c;
+            cbSelect.appendChild(opt);
+          });
+        }
+        locationSelect.addEventListener('change', populateBoards);
+        boardSelect.addEventListener('change', populateCBs);
+
+        /* ===== manual add buttons ===== */
+        document.getElementById('addLocationBtn').onclick = function() {
+          const name = prompt("New location name?");
+          if (!name) return;
+          if (!window.RCD_DATA[name]) window.RCD_DATA[name] = {};
+          populateLocations();
+          locationSelect.value = name;
+          populateBoards();
+          updateFilterOptionsFromSite();
+        };
+        document.getElementById('addBoardBtn').onclick = function() {
+          const loc = locationSelect.value;
+          if (!loc) return alert("Select a location first.");
+          const name = prompt("New switchboard name?");
+          if (!name) return;
+          if (!window.RCD_DATA[loc]) window.RCD_DATA[loc] = {};
+          if (!window.RCD_DATA[loc][name]) window.RCD_DATA[loc][name] = [];
+          populateBoards();
+          boardSelect.value = name;
+          populateCBs();
+          updateFilterOptionsFromSite();
+        };
+        document.getElementById('addCbBtn').onclick = function() {
+          const loc = locationSelect.value;
+          const board = boardSelect.value;
+          if (!loc || !board) return alert("Select a location and board first.");
+          const name = prompt("New CB number / name?");
+          if (!name) return;
+          if (!window.RCD_DATA[loc]) window.RCD_DATA[loc] = {};
+          if (!window.RCD_DATA[loc][board]) window.RCD_DATA[loc][board] = [];
+          window.RCD_DATA[loc][board].push(name);
+          populateCBs();
+          cbSelect.value = name;
+          updateFilterOptionsFromSite();
+        };
+
+        /* ===== auto-fill comment & reco from the top form ===== */
+        pbSelect.addEventListener('change', autoFillCommentReco);
+        commentSelect.addEventListener('change', () => {
+          const c = commentSelect.value;
+          if (COMMENT_RECO[c]) recommendationBox.value = COMMENT_RECO[c];
+        });
+        function autoFillCommentReco() {
+          const pb = pbSelect.value;
+          const trip = tripInput.value.trim();
+          const rated = ratedInput.value;
+          if (pb === "Failed") {
+            commentSelect.value = "Push button test failed";
+            recommendationBox.value = "Replace the RCBO";
+            return;
+          }
+          const tripNum = Number(trip);
+          if (!isNaN(tripNum) && tripNum > (TRIP_LIMITS[rated] || 300)) {
+            commentSelect.value = "Injection test failed";
+            recommendationBox.value = "Replace the RCBO";
+          }
+        }
+
+        /* ===== add/update test from top form ===== */
+        addTestBtn.onclick = function() {
+          const rec = collectFormRecord();
+          if (!rec) return;
+
+          // If the test has failed, capture the RCD part number
+          if (rec.result === "Failed") {
+            const part = prompt("RCD part number?");
+            if (part && part.trim()) {
+              const trimmed = part.trim();
+              if (rec.additional) {
+                rec.additional = rec.additional + " RCD part number: " + trimmed;
+              } else {
+                rec.additional = "RCD part number: " + trimmed;
+              }
+            }
+          }
+
+          if (editingIndex !== null) {
+            rec.itemNumber = LOGGED[editingIndex].itemNumber;
+            LOGGED[editingIndex] = rec;
+            editingIndex = null;
+            addTestBtn.textContent = "Add Test";
+          } else {
+            rec.itemNumber = ITEM_COUNTER++;
+            LOGGED.push(rec);
+          }
+          clearNonSelectionFields();
+          resetItemCounterFromLogged();
+          renderLog();
+        };
+
+        function collectFormRecord() {
+          const loc = locationSelect.value;
+          const board = boardSelect.value;
+          const cb = cbSelect.value;
+          const date = dateInput.value;
+          const rated = ratedInput.value;
+          const trip = tripInput.value.trim();
+          const pb = pbSelect.value;
+          const comment = commentSelect.value;
+          const rawReco = recommendationBox.value.trim();
+          const addl = additionalInfo.value.trim();
+
+        if (!loc || !board || !cb) {
+            alert("Please select location, switchboard and CB.");
+            return null;
+          }
+
+          let result = "Passed";
+          // Only treat Injection / PB failures as failed tests
+          if (comment === "Injection test failed" ||
+              comment === "Push button test failed" ||
+              comment === "Injection and PB test failed") {
+            result = "Failed";
+          }
+          if ((comment || "").toLowerCase().includes("removed from the board")) {
+            result = "";
+          }
+
+          let recommendation = rawReco;
+          if (!recommendation && COMMENT_RECO[comment]) {
+            recommendation = COMMENT_RECO[comment];
+          }
+
+          return {
+            location: loc,
+            board,
+            cb,
+            date,
+            rated,
+            trip,
+            pb,
+            comment,
+            recommendation,
+            result,
+            additional: addl
+          };
+        }
+
+        function clearNonSelectionFields() {
+          tripInput.value = "";
+          pbSelect.value = "";
+          commentSelect.value = "";
+          recommendationBox.value = "";
+          additionalInfo.value = "";
+        }
+
+        /* ===== updated recompute for LOGGED rows (inline edit) ===== */
+        function recomputeLoggedRow(rec) {
+          const rated = rec.rated || "30";
+          const limit = TRIP_LIMITS[rated] || 300;
+
+          const AUTO_COMMENTS = [
+            "Injection test failed",
+            "Push button test failed",
+            "Injection and PB test failed"
+          ];
+
+          const hadAutoBefore = AUTO_COMMENTS.includes(rec.comment);
+
+          const tripNum = Number((rec.trip || "").trim());
+          const tripFail = !isNaN(tripNum) && tripNum > limit;
+          const pbFail = rec.pb === "Failed";
+
+          let newComment = rec.comment;
+          let newReco = rec.recommendation;
+
+          // Trip / PB only drive the comment & recommendation,
+          // the "Failed" result is decided purely from the comment.
+          if (tripFail || pbFail) {
+            if (tripFail && pbFail) {
+              newComment = "Injection and PB test failed";
+            } else if (tripFail) {
+              newComment = "Injection test failed";
+            } else if (pbFail) {
+              newComment = "Push button test failed";
+            }
+            newReco = COMMENT_RECO[newComment] || newReco;
+          } else {
+            if (hadAutoBefore) {
+              newComment = "";
+              newReco = "";
+            }
+          }
+
+          // Preserve explicit "circuit is faulty" comment and its recommendation
+          if ((rec.comment || "").toLowerCase().includes("circuit is faulty")) {
+            newComment = rec.comment;
+            if (!rec.recommendation) {
+              newReco = COMMENT_RECO["Circuit is faulty(Not the RCBO)"];
+            }
+          }
+
+          // Decide the result based only on the comment text
+          let result = "Passed";
+          if (newComment === "Injection test failed" ||
+              newComment === "Push button test failed" ||
+              newComment === "Injection and PB test failed") {
+            result = "Failed";
+          }
+          if ((newComment || "").toLowerCase().includes("removed from the board")) {
+            result = "";
+          }
+
+          rec.result = result;
+          rec.comment = newComment;
+          rec.recommendation = newReco;
+        }
+
+
+        
+        /* ===== site-structure filters + grid ===== */
+        function updateFilterOptionsFromSite() {
+          const data = window.RCD_DATA || {};
+          const locs = Object.keys(data);
+
+          filterLocationSelect.innerHTML = "";
+          const locAll = document.createElement('option');
+          locAll.value = "";
+          locAll.textContent = locs.length ? "(all locations)" : "-- no locations --";
+          filterLocationSelect.appendChild(locAll);
+
+          locs.sort().forEach(loc => {
+            const opt = document.createElement('option');
+            opt.value = loc;
+            opt.textContent = loc;
+            if (loc === currentFilterLocation) opt.selected = true;
+            filterLocationSelect.appendChild(opt);
+          });
+
+          if (currentFilterLocation && !data[currentFilterLocation]) {
+            currentFilterLocation = "";
+            filterLocationSelect.value = "";
+          }
+
+          updateFilterBoardsFromSite();
+        }
+
+        function updateFilterBoardsFromSite() {
+          const data = window.RCD_DATA || {};
+          const selectedLoc = filterLocationSelect.value || "";
+          const boardsSet = new Set();
+
+          if (selectedLoc && data[selectedLoc]) {
+            Object.keys(data[selectedLoc]).forEach(b => boardsSet.add(b));
+          } else {
+            Object.values(data).forEach(boardObj => {
+              Object.keys(boardObj).forEach(b => boardsSet.add(b));
+            });
+          }
+
+          filterBoardSelect.innerHTML = "";
+          const allOpt = document.createElement('option');
+          allOpt.value = "";
+          allOpt.textContent = boardsSet.size ? "(all boards)" : "-- no boards --";
+          filterBoardSelect.appendChild(allOpt);
+
+          Array.from(boardsSet).sort().forEach(b => {
+            const opt = document.createElement('option');
+            opt.value = b;
+            opt.textContent = b;
+            if (b === currentFilterBoard) opt.selected = true;
+            filterBoardSelect.appendChild(opt);
+          });
+
+          if (currentFilterBoard && !boardsSet.has(currentFilterBoard)) {
+            currentFilterBoard = "";
+            filterBoardSelect.value = "";
+          }
+        }
+
+        filterLocationSelect.addEventListener('change', function() {
+          currentFilterLocation = filterLocationSelect.value || "";
+          updateFilterBoardsFromSite();
+        });
+
+        applyFilterBtn.addEventListener('click', function() {
+          currentFilterLocation = filterLocationSelect.value || "";
+          currentFilterBoard   = filterBoardSelect.value || "";
+          buildFilterGridFromSite();
+        });
+
+        function buildFilterGridFromSite() {
+          if (!filterGridBody) return;
+
+          filterGridBody.innerHTML = "";
+          const data = window.RCD_DATA || {};
+          const locFilter = currentFilterLocation;
+          const boardFilter = currentFilterBoard;
+          const today = new Date().toISOString().slice(0,10);
+
+          let count = 0;
+
+          const locKeys = Object.keys(data).sort();
+          locKeys.forEach(loc => {
+            if (locFilter && loc !== locFilter) return;
+            const boards = data[loc] || {};
+            Object.keys(boards).sort().forEach(board => {
+              if (boardFilter && board !== boardFilter) return;
+              const cbList = boards[board] || [];
+              cbList.forEach(cb => {
+                count++;
+                const tr = document.createElement('tr');
+                tr.dataset.location = loc;
+                tr.dataset.board = board;
+                tr.dataset.cb = cb;
+
+                tr.innerHTML = `
+                  <td>${loc}</td>
+                  <td>${board}</td>
+                  <td>${cb}</td>
+                  <td><input type="date" class="fg-date" value="${today}"></td>
+                  <td>
+                    <select class="fg-rated">
+                      <option value="30">30 mA</option>
+                      <option value="100">100 mA</option>
+                      <option value="300">300 mA</option>
+                      <option value="500">500 mA</option>
+                    </select>
+                  </td>
+                  <td><input type="text" class="fg-trip" placeholder="ms"></td>
+                  <td>
+                    <select class="fg-pb">
+                      <option value=""></option>
+                      <option value="Passed">Passed</option>
+                      <option value="Failed">Failed</option>
+                    </select>
+                  </td>
+                  <td>
+                    <select class="fg-comment">
+                      <option value=""></option>
+                      <option value="Injection test failed">Injection test failed</option>
+                      <option value="Push button test failed">Push button test failed</option>
+                      <option value="Injection and PB test failed">Injection and PB test failed</option>
+                      <option value="Circuit is faulty(Not the RCBO)">Circuit is faulty(Not the RCBO)</option>
+                      <option value="Removed from the board(doesn’t exist)">Removed from the board(doesn’t exist)</option>
+                      <option value="No access to DB / couldn’t test">No access to DB / couldn’t test</option>
+                    </select>
+                  </td>
+                  <td><input type="text" class="fg-reco"></td>
+                  <td><input type="text" class="fg-additional"></td>
+                  <td class="fg-result"></td>
+                  <td><button type="button" class="small fg-add">Add</button></td>
+                `;
+                filterGridBody.appendChild(tr);
+              });
+            });
+          });
+
+          if (!count) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 12;
+            td.textContent = "No boards / circuits match the current filter.";
+            tr.appendChild(td);
+            filterGridBody.appendChild(tr);
+          }
+          // keep global horizontal scrollbar in sync with the filter grid width
+          updateProxyWidth();
+        }
+
+        function recomputeGridRow(tr) {
+          const ratedEl = tr.querySelector('.fg-rated');
+          const tripEl = tr.querySelector('.fg-trip');
+          const pbEl = tr.querySelector('.fg-pb');
+          const commentEl = tr.querySelector('.fg-comment');
+          const recoEl = tr.querySelector('.fg-reco');
+          const additionalEl = tr.querySelector('.fg-additional');
+          const resultCell = tr.querySelector('.fg-result');
+
+          const rec = {
+            rated: ratedEl ? (ratedEl.value || "30") : "30",
+            trip: tripEl ? tripEl.value.trim() : "",
+            pb: pbEl ? pbEl.value : "",
+            comment: commentEl ? commentEl.value : "",
+            recommendation: recoEl ? recoEl.value.trim() : "",
+            additional: additionalEl ? additionalEl.value.trim() : "",
+            result: ""
+          };
+
+          recomputeLoggedRow(rec);
+
+          if (commentEl) commentEl.value = rec.comment || "";
+          if (recoEl) recoEl.value = rec.recommendation || "";
+
+          if (resultCell) {
+            resultCell.textContent = rec.result || "";
+            if (rec.result === "Failed") {
+              resultCell.classList.add('fail');
+            } else {
+              resultCell.classList.remove('fail');
+            }
+          }
+        }
+
+        filterGridBody.addEventListener('change', function(e) {
+          const target = e.target;
+          if (!target) return;
+          const tr = target.closest('tr');
+          if (!tr) return;
+
+          if (
+            target.classList.contains('fg-rated') ||
+            target.classList.contains('fg-trip') ||
+            target.classList.contains('fg-pb') ||
+            target.classList.contains('fg-comment')
+          ) {
+            recomputeGridRow(tr);
+          }
+
+          if (target.classList.contains('fg-comment')) {
+            const commentVal = target.value;
+            const recoEl = tr.querySelector('.fg-reco');
+            if (recoEl && COMMENT_RECO[commentVal]) {
+              recoEl.value = COMMENT_RECO[commentVal];
+            }
+          }
+        });
+
+        filterGridBody.addEventListener('click', function(e) {
+          const btn = e.target.closest('button');
+          if (!btn) return;
+          if (!btn.classList.contains('fg-add')) return;
+
+          const tr = btn.closest('tr');
+          if (!tr) return;
+
+          const loc = tr.dataset.location || "";
+          const board = tr.dataset.board || "";
+          const cb = tr.dataset.cb || "";
+
+          const dateEl = tr.querySelector('.fg-date');
+          const ratedEl = tr.querySelector('.fg-rated');
+          const tripEl = tr.querySelector('.fg-trip');
+          const pbEl = tr.querySelector('.fg-pb');
+          const commentEl = tr.querySelector('.fg-comment');
+          const recoEl = tr.querySelector('.fg-reco');
+          const additionalEl = tr.querySelector('.fg-additional');
+
+          const dateVal = dateEl ? dateEl.value : "";
+
+          // Prevent adding the same item more than once from the filter grid
+          const duplicate = LOGGED.some(r =>
+            r.location === loc &&
+            r.board === board &&
+            r.cb === cb &&
+            r.date === dateVal
+          );
+          if (duplicate) {
+            alert("This item is already in Logged Tests.");
+            return;
+          }
+
+          const rec = {
+            location: loc,
+            board: board,
+            cb: cb,
+            date: dateVal,
+            rated: ratedEl ? (ratedEl.value || "30") : "30",
+            trip: tripEl ? tripEl.value.trim() : "",
+            pb: pbEl ? pbEl.value : "",
+            comment: commentEl ? commentEl.value : "",
+            recommendation: recoEl ? recoEl.value.trim() : "",
+            additional: additionalEl ? additionalEl.value.trim() : "",
+            result: ""
+          };
+
+          recomputeLoggedRow(rec);
+
+          // If the test has failed, capture the RCD part number
+          if (rec.result === "Failed") {
+            const part = prompt("RCD part number?");
+            if (part && part.trim()) {
+              const trimmed = part.trim();
+              if (rec.additional) {
+                rec.additional = rec.additional + " RCD part number: " + trimmed;
+              } else {
+                rec.additional = "RCD part number: " + trimmed;
+              }
+            }
+          }
+
+          rec.itemNumber = ITEM_COUNTER++;
+          LOGGED.push(rec);
+          resetItemCounterFromLogged();
+          renderLog();
+        });
+/* ===== render log ===== */
+        function renderLog() {
+          logBody.innerHTML = "";
+
+          if (!LOGGED.length) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 15;
+            td.textContent = "No tests yet.";
+            tr.appendChild(td);
+            logBody.appendChild(tr);
+            loggedCount.textContent = "0";
+            updateProxyWidth();
+            return;
+          }
+
+          let visibleCount = 0;
+
+          LOGGED.forEach((row, idx) => {
+            visibleCount++;
+
+            const tr = document.createElement('tr');
+            if (idx === tableEditingIndex) {
+              tr.innerHTML = `
+                <td>${idx + 1}</td>
+                <td>${row.itemNumber != null ? row.itemNumber : ''}</td>
+                <td>${row.location}</td>
+                <td>${row.board}</td>
+                <td>${row.cb}</td>
+                <td><input type="date" data-field="date" value="${row.date || ''}"></td>
+                <td><input type="text" data-field="rated" value="${row.rated || ''}"></td>
+                <td><input type="text" data-field="trip" value="${row.trip || ''}"></td>
+                <td>
+                  <select data-field="pb">
+                    <option value=""></option>
+                    <option value="Passed" ${row.pb === "Passed" ? "selected" : ""}>Passed</option>
+                    <option value="Failed" ${row.pb === "Failed" ? "selected" : ""}>Failed</option>
+                  </select>
+                </td>
+                <td>
+                  <select data-field="comment">
+                    <option value=""></option>
+                    <option value="Injection test failed" ${row.comment === "Injection test failed" ? "selected" : ""}>Injection test failed</option>
+                    <option value="Push button test failed" ${row.comment === "Push button test failed" ? "selected" : ""}>Push button test failed</option>
+                    <option value="Injection and PB test failed" ${row.comment === "Injection and PB test failed" ? "selected" : ""}>Injection and PB test failed</option>
+                    <option value="Circuit is faulty(Not the RCBO)" ${row.comment === "Circuit is faulty(Not the RCBO)" ? "selected" : ""}>Circuit is faulty(Not the RCBO)</option>
+                    <option value="Removed from the board(doesn’t exist)" ${row.comment === "Removed from the board(doesn’t exist)" ? "selected" : ""}>Removed from the board(doesn’t exist)</option>
+                    <option value="No access to DB / couldn’t test" ${row.comment === "No access to DB / couldn’t test" ? "selected" : ""}>No access to DB / couldn’t test</option>
+                  </select>
+                </td>
+                <td><input type="text" data-field="recommendation" value="${row.recommendation || ''}"></td>
+                <td>${row.result || ''}</td>
+                <td><input type="text" data-field="additional" value="${row.additional || ''}"></td>
+                <td><button data-save="${idx}" class="small" style="background:#4caf50;">Save</button></td>
+                <td><button data-cancel="${idx}" class="small" style="background:#999;">Cancel</button></td>
+              `;
+            } else {
+              tr.innerHTML = `
+                <td>${idx+1}</td>
+                <td>${row.itemNumber != null ? row.itemNumber : ''}</td>
+                <td>${row.location}</td>
+                <td>${row.board}</td>
+                <td>${row.cb}</td>
+                <td>${row.date}</td>
+                <td>${row.rated}</td>
+                <td>${row.trip}</td>
+                <td>${row.pb}</td>
+                <td>${row.comment}</td>
+                <td>${row.recommendation ? row.recommendation : '–'}</td>
+                <td class="${row.result === 'Failed' ? 'fail' : ''}">${row.result}</td>
+                <td>${row.additional}</td>
+                <td><button data-edit="${idx}" class="small" style="background:#999;">Edit</button></td>
+                <td><button data-idx="${idx}" class="small" style="background:#c00;">X</button></td>
+              `;
+            }
+            logBody.appendChild(tr);
+          });
+          // show how many rows are currently visible (after filters)
+          loggedCount.textContent = String(visibleCount);
+          updateProxyWidth();
+        }
+
+        /* ===== delegated click for the logged table ===== */
+        logBody.addEventListener('click', function(e) {
+          const btn = e.target.closest('button');
+          if (!btn) return;
+
+          if (btn.dataset.idx !== undefined) {
+            const i = Number(btn.dataset.idx);
+            LOGGED.splice(i, 1);
+            if (tableEditingIndex === i) tableEditingIndex = null;
+            resetItemCounterFromLogged();
+            renderLog();
+            return;
+          }
+
+          if (btn.dataset.edit !== undefined) {
+            tableEditingIndex = Number(btn.dataset.edit);
+            renderLog();
+            return;
+          }
+
+          if (btn.dataset.save !== undefined) {
+            const i = Number(btn.dataset.save);
+            const rowEl = btn.closest('tr');
+            const getVal = (sel) => {
+              const el = rowEl.querySelector(sel);
+              return el ? el.value : "";
+            };
+            const current = LOGGED[i];
+            current.date = getVal('[data-field="date"]');
+            current.rated = getVal('[data-field="rated"]');
+            current.trip = getVal('[data-field="trip"]');
+            current.pb = getVal('[data-field="pb"]');
+            current.comment = getVal('[data-field="comment"]');
+            current.recommendation = getVal('[data-field="recommendation"]');
+            current.additional = getVal('[data-field="additional"]');
+
+            // re-run logic
+            recomputeLoggedRow(current);
+
+            tableEditingIndex = null;
+            renderLog();
+            return;
+          }
+
+          if (btn.dataset.cancel !== undefined) {
+            tableEditingIndex = null;
+            renderLog();
+            return;
+          }
+        });
+
+        /* ===== EXPORTS ===== */
+        document.getElementById('exportCsvBtn').onclick = function() {
+          if (!LOGGED.length) return;
+          const header = ["Item #","Location","Switchboard","CB","Date","Rated (mA)","Trip (ms)","PB","Comment","Recommendation","Result","Additional Info"];
+          const lines = [header.join(",")];
+          LOGGED.forEach(r => {
+            const row = [
+              r.itemNumber,
+              r.location, r.board, r.cb, r.date, r.rated, r.trip, r.pb,
+              r.comment, r.recommendation, r.result, r.additional
+            ].map(v => `"${(v||"").replace(/"/g,'""')}"`);
+            lines.push(row.join(","));
+          });
+          const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = "rcd-tests.csv";
+          a.click();
+          URL.revokeObjectURL(url);
+        };
+
+        document.getElementById('exportExcelBtn').onclick = function() {
+          if (!LOGGED.length) return;
+          const rows = [
+            ["Item #","Location","Switchboard","CB","Date","Rated (mA)","Trip (ms)","PB","Comment","Recommendation","Result","Additional Info"]
+          ];
+          LOGGED.forEach(r => {
+            rows.push([
+              r.itemNumber,
+              r.location,
+              r.board,
+              r.cb,
+              r.date,
+              r.rated,
+              r.trip,
+              r.pb,
+              r.comment,
+              r.recommendation,
+              r.result,
+              r.additional
+            ]);
+          });
+          const ws = XLSX.utils.aoa_to_sheet(rows);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, "RCD Tests");
+          XLSX.writeFile(wb, "rcd-tests.xlsx");
+        };
+
+        
+        function normalizePB(v){
+          if (v == null) return "";
+          const s = String(v).trim().toLowerCase();
+          if (s === "failed") return "Failed";
+          if (s === "passed" || s === "pass") return "Passed";
+          return s ? s.charAt(0).toUpperCase() + s.slice(1) : "";
+        }
+
+        document.getElementById('exportPdfBtn').onclick = function() {
+          if (!LOGGED.length) return;
+          if (!(window.jspdf && window.jspdf.jsPDF)) {
+            alert("jsPDF not loaded.");
+            return;
+          }
+          const { jsPDF } = window.jspdf;
+          const doc = new jsPDF({ orientation: "landscape" });
+          const margin = 14;
+          const today = new Date().toISOString().slice(0,10);
+          let currentY = 10;
+
+          doc.setFontSize(14);
+          doc.text("RCD Test Report", margin, currentY);
+          currentY += 8;
+
+          doc.setFontSize(10);
+          doc.text("Date: " + today, margin, currentY); currentY += 5;
+          doc.text("Developed by Total Electrical Control Solutions", margin, currentY); currentY += 5;
+
+          const cName = custName.value.trim();
+          const cSite = custSite.value.trim();
+          const jNum  = jobNumber.value.trim();
+          if (cName) { doc.text("Customer: " + cName, margin, currentY); currentY += 4; }
+          if (cSite) { doc.text("Site: " + cSite, margin, currentY); currentY += 4; }
+          if (jNum)  { doc.text("Job number: " + jNum, margin, currentY); currentY += 6; }
+          else { currentY += 6; }
+
+          doc.setFontSize(11);
+          doc.text("Introduction", margin, currentY);
+          currentY += 5;
+          doc.setFontSize(9);
+          const pageWidth = doc.internal.pageSize.getWidth();
+          RCD_INTRO.forEach(par => {
+            const lines = doc.splitTextToSize(par, pageWidth - margin*2);
+            doc.text(lines, margin, currentY);
+            currentY += lines.length * 5.3;
+          });
+          currentY += 4;
+
+          const failed = LOGGED.filter(r => r.result === "Failed");
+          doc.setFontSize(11);
+          doc.text("Failed tests", margin, currentY);
+          currentY += 4;
+          if (failed.length) {
+            doc.autoTable({
+              startY: currentY,
+              head: [["Item #","Location","Board","CB","Date","PB","Comment","Result"]],
+              body: failed.map(r => [
+                r.itemNumber,
+                r.location,
+                r.board,
+                r.cb,
+                r.date,
+                normalizePB(r.pb),
+                r.comment,
+                r.result
+              ]),
+              styles: { fontSize: 7, cellWidth: 'wrap' },
+              headStyles: { fillColor: [200, 0, 0], textColor: 255 },
+              didParseCell: function (data) {
+                if (data.section === 'body' && data.column.index === 7) {
+                  data.cell.styles.textColor = [255,255,255];
+                  data.cell.styles.fillColor = [200,0,0];
+                }
+              }
+            });
+            currentY = doc.lastAutoTable.finalY + 8;
+          } else {
+            doc.setFontSize(9);
+            doc.text("No failed tests.", margin, currentY);
+            currentY += 9;
+          }
+
+          doc.setFontSize(11);
+          doc.text("All tests", margin, currentY);
+          currentY += 4;
+          doc.autoTable({
+            startY: currentY,
+            head: [["Item #","Location","Board","CB","Date","Rated (mA)","Trip (ms)","PB","Comment","Recommendation","Result"]],
+            body: LOGGED.map(r => [
+              r.itemNumber,
+              r.location,
+              r.board,
+              r.cb,
+              r.date,
+              r.rated,
+              r.trip,
+              normalizePB(r.pb),
+              r.comment,
+              r.recommendation ? r.recommendation : "–",
+              r.result
+            ]),
+            styles: { fontSize: 7, cellWidth: 'wrap' },
+            headStyles: { fillColor: [0, 122, 204], textColor: 255 },
+            didParseCell: function (data) {
+              if (data.section === 'body' && data.column.index === 10) {
+                if (data.cell.raw === "Failed") {
+                  data.cell.styles.textColor = [200,0,0];
+                }
+              }
+            }
+          });
+
+          doc.save("rcd_logged_report.pdf");
+        };
+
+        /* ===== IMPORT TEST RESULTS (RESTORED) ===== */
+        importBtn.onclick = function() {
+          const file = excelInput.files && excelInput.files[0];
+          if (!file) { alert("Choose an Excel file first."); return; }
+          if (typeof XLSX === "undefined") { alert("xlsx.full.min.js not loaded."); return; }
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            try {
+              const data = new Uint8Array(e.target.result);
+              const workbook = XLSX.read(data, { type: 'array' });
+              const sheetName = workbook.SheetNames[0];
+              const sheet = workbook.Sheets[sheetName];
+              const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+              importRowsFromMatrix(rows);
+            } catch (err) {
+              console.error("Import error", err);
+              alert("Could not read that Excel. Please check the file.");
+            }
+          };
+          reader.readAsArrayBuffer(file);
+        };
+
+        function importRowsFromMatrix(rows) {
+          if (!rows || !rows.length) {
+            alert("Sheet is empty.");
+            return;
+          }
+          let headerRowIndex = -1;
+          let headerMap = {};
+          for (let r = 0; r < Math.min(rows.length, 20); r++) {
+            const row = rows[r];
+            let tmpMap = {};
+            let hit = 0;
+            row.forEach((cell, cidx) => {
+              const key = matchHeaderCell(cell);
+              if (key) {
+                tmpMap[key] = cidx;
+                hit++;
+              }
+            });
+            if (hit >= 3) {
+              headerRowIndex = r;
+              headerMap = tmpMap;
+              break;
+            }
+          }
+          if (headerRowIndex === -1) {
+            alert("Could not find header row in Excel. Make sure you have columns like Location / Board / CB / Date / Trip.");
+            return;
+          }
+
+          let imported = 0;
+          let lastLocation = "";
+          let lastBoard = "";
+
+          for (let r = headerRowIndex + 1; r < rows.length; r++) {
+            const row = rows[r];
+            if (!row || row.every(v => String(v).trim() === "")) continue;
+
+            function getCol(key) {
+              if (headerMap[key] == null) return "";
+              return String(row[headerMap[key]]).trim();
+            }
+
+            let location = getCol("location");
+            let board    = getCol("board");
+            const cb     = getCol("cb");
+
+            if (!location) location = lastLocation;
+            if (!board)    board    = lastBoard;
+            if (location) lastLocation = location;
+            if (board)    lastBoard    = board;
+
+            let itemNumRaw = getCol("itemNumber");
+            let itemNum = itemNumRaw ? Number(itemNumRaw) : null;
+            if (!itemNum || isNaN(itemNum)) {
+              itemNum = ITEM_COUNTER++;
+            } else {
+              if (itemNum >= ITEM_COUNTER) {
+                ITEM_COUNTER = itemNum + 1;
+              }
+            }
+
+            const rec = {
+              itemNumber: itemNum,
+              location: location,
+              board: board,
+              cb: cb,
+              date: getCol("date"),
+              rated: getCol("rated") || "30",
+              trip: getCol("trip"),
+              pb: getCol("pb"),
+              comment: getCol("comment"),
+              recommendation: getCol("recommendation"),
+              result: getCol("result"),
+              additional: getCol("additional")
+            };
+
+            if (!rec.result) {
+              // Only treat Injection / PB failures as failed tests; everything else is not a failed test.
+              let res = "Passed";
+              if (rec.comment === "Injection test failed" ||
+                  rec.comment === "Push button test failed" ||
+                  rec.comment === "Injection and PB test failed") {
+                res = "Failed";
+              }
+              if ((rec.comment || "").toLowerCase().includes("removed from the board")) {
+                res = "";
+              }
+              rec.result = res;
+            }
+            if (!rec.recommendation && COMMENT_RECO[rec.comment]) {
+              rec.recommendation = COMMENT_RECO[rec.comment];
+            }
+
+            if (rec.location) {
+              if (!window.RCD_DATA[rec.location]) window.RCD_DATA[rec.location] = {};
+              if (rec.board) {
+                if (!window.RCD_DATA[rec.location][rec.board]) window.RCD_DATA[rec.location][rec.board] = [];
+                if (rec.cb && !window.RCD_DATA[rec.location][rec.board].includes(rec.cb)) {
+                  window.RCD_DATA[rec.location][rec.board].push(rec.cb);
+                }
+              }
+            }
+
+            LOGGED.push(rec);
+            imported++;
+          }
+          populateLocations();
+          updateFilterOptionsFromSite();
+          resetItemCounterFromLogged();
+          renderLog();
+          alert("Imported " + imported + " row(s).");
+        }
+
+        /* ===== SITE STRUCTURE IMPORT (RESTORED) ===== */
+        siteImportBtn.onclick = function() {
+          const file = siteExcelInput.files && siteExcelInput.files[0];
+          if (!file) {
+            alert("Choose a site-structure Excel file first.");
+            return;
+          }
+          if (typeof XLSX === "undefined") {
+            alert("xlsx.full.min.js is not loaded or not found in this folder.");
+            return;
+          }
+
+          const oldData = JSON.parse(JSON.stringify(window.RCD_DATA || {}));
+
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            try {
+              const data = new Uint8Array(e.target.result);
+              const workbook = XLSX.read(data, { type: 'array' });
+              if (!workbook.SheetNames || !workbook.SheetNames.length) {
+                alert("No sheets found in Excel.");
+                return;
+              }
+              const sheetName = workbook.SheetNames[0];
+              const sheet = workbook.Sheets[sheetName];
+              const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+              const result = buildSiteStructureFromRows(rows);
+              if (!result) {
+                window.RCD_DATA = oldData;
+                populateLocations();
+                updateFilterOptionsFromSite();
+                return;
+              }
+
+              if (Object.keys(result).length === 0) {
+                alert("No locations/boards were found in that Excel file. Existing data kept.");
+                window.RCD_DATA = oldData;
+                populateLocations();
+                updateFilterOptionsFromSite();
+                return;
+              }
+
+              window.RCD_DATA = result;
+              populateLocations();
+              updateFilterOptionsFromSite();
+
+              const locCount = Object.keys(result).length;
+              let boardCount = 0;
+              Object.values(result).forEach(b => boardCount += Object.keys(b).length);
+              alert("Site structure imported.\nLocations: " + locCount + "\nBoards: " + boardCount);
+            } catch (err) {
+              console.error("Import error", err);
+              alert("There was an error reading that file. Existing data kept.");
+              window.RCD_DATA = oldData;
+              populateLocations();
+              updateFilterOptionsFromSite();
+            }
+          };
+          reader.readAsArrayBuffer(file);
+        };
+
+        function buildSiteStructureFromRows(rows) {
+          if (!rows || !rows.length) {
+            alert("Sheet is empty.");
+            return null;
+          }
+          let headerRowIndex = -1;
+          let headerMap = {};
+          for (let r = 0; r < Math.min(rows.length, 40); r++) {
+            const row = rows[r];
+            let tmp = {};
+            let hit = 0;
+            row.forEach((cell, cidx) => {
+              const key = matchSiteHeaderCell(cell);
+              if (key) { tmp[key] = cidx; hit++; }
+            });
+            if (hit >= 1) {
+              headerRowIndex = r;
+              headerMap = tmp;
+              break;
+            }
+          }
+          if (headerRowIndex === -1) {
+            alert("Could not find headers in that file. Make sure you have at least a 'Location' column.");
+            return null;
+          }
+
+          const newData = {};
+          let lastLocation = "";
+          let lastBoard = "";
+
+          for (let r = headerRowIndex + 1; r < rows.length; r++) {
+            const row = rows[r];
+            if (!row || row.every(v => String(v).trim() === "")) continue;
+
+            function getSiteCol(key) {
+              if (headerMap[key] == null) return "";
+              return String(row[headerMap[key]]).trim();
+            }
+
+            let loc   = getSiteCol("location");
+            let board = getSiteCol("board");
+            const cb  = getSiteCol("cb");
+
+            if (!loc)   loc   = lastLocation;
+            if (!board) board = lastBoard;
+            if (loc)   lastLocation = loc;
+            if (board) lastBoard    = board;
+
+            if (!loc) continue;
+            if (!newData[loc]) newData[loc] = {};
+
+            if (!board && cb) {
+              board = "Board 1";
+            }
+
+            if (board) {
+              if (!newData[loc][board]) newData[loc][board] = [];
+              if (cb && !newData[loc][board].includes(cb)) {
+                newData[loc][board].push(cb);
+              }
+            }
+          }
+
+          return newData;
+        }
+
+        // init
+        dateInput.value = new Date().toISOString().slice(0,10);
+        populateLocations();
+        updateFilterOptionsFromSite();
+        renderLog();
+        updateProxyWidth();
+      };
+    </script>
+  </body>
+</html>
