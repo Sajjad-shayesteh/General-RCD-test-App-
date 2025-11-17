@@ -942,6 +942,16 @@
 
           const dateVal = dateEl ? dateEl.value : "";
 
+          const hasTrip = tripEl && tripEl.value.trim() !== "";
+          const hasPb = pbEl && pbEl.value.trim() !== "";
+          const commentVal = commentEl && commentEl.value.trim();
+          const isRemoved = (commentVal || "").toLowerCase().includes("removed from the board");
+
+          if (!hasTrip && !hasPb && !isRemoved) {
+            alert("Enter a trip time or PB result before adding.");
+            return;
+          }
+
           // Prevent adding the same item more than once from the filter grid
           const duplicate = LOGGED.some(r =>
             r.location === loc &&
@@ -962,7 +972,7 @@
             rated: ratedEl ? (ratedEl.value || "30") : "30",
             trip: tripEl ? tripEl.value.trim() : "",
             pb: pbEl ? pbEl.value : "",
-            comment: commentEl ? commentEl.value : "",
+            comment: commentVal || "",
             recommendation: recoEl ? recoEl.value.trim() : "",
             additional: additionalEl ? additionalEl.value.trim() : "",
             result: ""
@@ -1171,12 +1181,19 @@
         };
 
         
-        function normalizePB(v){
-          if (v == null) return "";
-          const s = String(v).trim().toLowerCase();
-          if (s === "failed") return "Failed";
-          if (s === "passed" || s === "pass") return "Passed";
-          return s ? s.charAt(0).toUpperCase() + s.slice(1) : "";
+        function normalizePB(pbVal, commentVal){
+          const comment = (commentVal || "").toLowerCase();
+          if (comment.includes("removed from the board")) return "-";
+
+          const s = (pbVal == null ? "" : String(pbVal)).trim().toLowerCase();
+          if (s === "failed" || s === "fail" || s === "f") return "Failed";
+          if (s === "passed" || s === "pass" || s === "p") return "Passed";
+
+          if (comment.includes("push button test failed") || comment.includes("and pb test failed")) {
+            return "Failed";
+          }
+
+          return "";
         }
 
         document.getElementById('exportPdfBtn').onclick = function() {
@@ -1233,7 +1250,7 @@
                 r.board,
                 r.cb,
                 r.date,
-                normalizePB(r.pb),
+                normalizePB(r.pb, r.comment),
                 r.comment,
                 r.result
               ]),
@@ -1267,7 +1284,7 @@
               r.date,
               r.rated,
               r.trip,
-              normalizePB(r.pb),
+              normalizePB(r.pb, r.comment),
               r.comment,
               r.recommendation ? r.recommendation : "–",
               r.result
