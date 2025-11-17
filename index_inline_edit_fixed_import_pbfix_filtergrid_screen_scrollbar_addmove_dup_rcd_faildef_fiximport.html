@@ -953,8 +953,8 @@
           const commentVal = commentEl && commentEl.value.trim();
           const isRemoved = (commentVal || "").toLowerCase().includes("removed from the board");
 
-          if (!isRemoved && (!hasTrip || !hasPb)) {
-            alert("Enter both a trip time and PB result before adding.");
+          if (!hasTrip && !hasPb && !isRemoved) {
+            alert("Enter a trip time or PB result before adding.");
             return;
           }
 
@@ -1199,9 +1199,7 @@
             return "Failed";
           }
 
-          if (resultVal === "Failed") return "Failed";
-
-          return "Passed";
+          return "";
         }
 
         document.getElementById('exportPdfBtn').onclick = function() {
@@ -1258,7 +1256,7 @@
                 r.board,
                 r.cb,
                 r.date,
-                normalizePB(r.pb, r.comment, r.result),
+                normalizePB(r.pb, r.comment),
                 r.comment,
                 r.result
               ]),
@@ -1292,7 +1290,7 @@
               r.date,
               r.rated,
               r.trip,
-              normalizePB(r.pb, r.comment, r.result),
+              normalizePB(r.pb, r.comment),
               r.comment,
               r.recommendation ? r.recommendation : "–",
               r.result
