@@ -609,6 +609,12 @@
             return null;
           }
 
+          const removed = (comment || "").toLowerCase().includes("removed from the board");
+          if (!removed && (!trip || !pb)) {
+            alert("Enter both a trip time and PB result before adding.");
+            return null;
+          }
+
           let result = "Passed";
           // Only treat Injection / PB failures as failed tests
           if (comment === "Injection test failed" ||
@@ -616,7 +622,7 @@
               comment === "Injection and PB test failed") {
             result = "Failed";
           }
-          if ((comment || "").toLowerCase().includes("removed from the board")) {
+          if (removed) {
             result = "";
           }
 
@@ -1181,7 +1187,7 @@
         };
 
         
-        function normalizePB(pbVal, commentVal){
+        function normalizePB(pbVal, commentVal, resultVal){
           const comment = (commentVal || "").toLowerCase();
           if (comment.includes("removed from the board")) return "-";
 
