@@ -360,6 +360,8 @@
         const proxy = document.getElementById('hscrollProxy');
         const proxyInner = document.getElementById('hscrollInner');
 
+        const STORAGE_KEY = 'rcd_autosave_v1';
+
         let LOGGED = [];
         let editingIndex = null;
         let tableEditingIndex = null;
@@ -453,6 +455,60 @@
           ITEM_COUNTER = maxItem + 1;
         }
 
+        /* ===== autosave helpers ===== */
+        function persistState() {
+          if (typeof localStorage === 'undefined') return;
+          try {
+            const payload = {
+              logged: LOGGED,
+              itemCounter: ITEM_COUNTER,
+              rcdData: window.RCD_DATA || {},
+              customer: {
+                name: custName.value,
+                site: custSite.value,
+                job: jobNumber.value
+              }
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+          } catch (err) {
+            console.warn('Autosave failed', err);
+          }
+        }
+
+        function restoreState() {
+          if (typeof localStorage === 'undefined') return;
+          try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+
+            if (parsed && parsed.rcdData) {
+              window.RCD_DATA = parsed.rcdData;
+            }
+
+            if (parsed && Array.isArray(parsed.logged)) {
+              LOGGED = parsed.logged;
+            }
+
+            resetItemCounterFromLogged();
+            if (parsed && parsed.itemCounter && Number(parsed.itemCounter) > ITEM_COUNTER) {
+              ITEM_COUNTER = Number(parsed.itemCounter);
+            }
+
+            if (parsed && parsed.customer) {
+              if (parsed.customer.name) custName.value = parsed.customer.name;
+              if (parsed.customer.site) custSite.value = parsed.customer.site;
+              if (parsed.customer.job)  jobNumber.value = parsed.customer.job;
+            }
+          } catch (err) {
+            console.warn('Restore failed', err);
+          }
+        }
+
+        [custName, custSite, jobNumber].forEach(el => {
+          el.addEventListener('input', persistState);
+        });
+
         /* ===== dropdowns ===== */
         function populateLocations() {
           locationSelect.innerHTML = "";
@@ -511,6 +567,7 @@
           locationSelect.value = name;
           populateBoards();
           updateFilterOptionsFromSite();
+          persistState();
         };
         document.getElementById('addBoardBtn').onclick = function() {
           const loc = locationSelect.value;
@@ -523,6 +580,7 @@
           boardSelect.value = name;
           populateCBs();
           updateFilterOptionsFromSite();
+          persistState();
         };
         document.getElementById('addCbBtn').onclick = function() {
           const loc = locationSelect.value;
@@ -536,6 +594,7 @@
           populateCBs();
           cbSelect.value = name;
           updateFilterOptionsFromSite();
+          persistState();
         };
 
         /* ===== auto-fill comment & reco from the top form ===== */
@@ -590,6 +649,7 @@
           clearNonSelectionFields();
           resetItemCounterFromLogged();
           renderLog();
+          persistState();
         };
 
         function collectFormRecord() {
@@ -609,6 +669,12 @@
             return null;
           }
 
+          const removed = (comment || "").toLowerCase().includes("removed from the board");
+          if (!removed && (!trip || !pb)) {
+            alert("Enter both a trip time and PB result before adding.");
+            return null;
+          }
+
           let result = "Passed";
           // Only treat Injection / PB failures as failed tests
           if (comment === "Injection test failed" ||
@@ -616,7 +682,7 @@
               comment === "Injection and PB test failed") {
             result = "Failed";
           }
-          if ((comment || "").toLowerCase().includes("removed from the board")) {
+          if (removed) {
             result = "";
           }
 
@@ -942,6 +1008,16 @@
 
           const dateVal = dateEl ? dateEl.value : "";
 
+          const hasTrip = tripEl && tripEl.value.trim() !== "";
+          const hasPb = pbEl && pbEl.value.trim() !== "";
+          const commentVal = commentEl && commentEl.value.trim();
+          const isRemoved = (commentVal || "").toLowerCase().includes("removed from the board");
+
+          if (!isRemoved && (!hasTrip || !hasPb)) {
+            alert("Enter both a trip time and PB result before adding.");
+            return;
+          }
+
           // Prevent adding the same item more than once from the filter grid
           const duplicate = LOGGED.some(r =>
             r.location === loc &&
@@ -962,7 +1038,7 @@
             rated: ratedEl ? (ratedEl.value || "30") : "30",
             trip: tripEl ? tripEl.value.trim() : "",
             pb: pbEl ? pbEl.value : "",
-            comment: commentEl ? commentEl.value : "",
+            comment: commentVal || "",
             recommendation: recoEl ? recoEl.value.trim() : "",
             additional: additionalEl ? additionalEl.value.trim() : "",
             result: ""
@@ -987,6 +1063,7 @@
           LOGGED.push(rec);
           resetItemCounterFromLogged();
           renderLog();
+          persistState();
         });
 /* ===== render log ===== */
         function renderLog() {
@@ -1081,6 +1158,7 @@
             if (tableEditingIndex === i) tableEditingIndex = null;
             resetItemCounterFromLogged();
             renderLog();
+            persistState();
             return;
           }
 
@@ -1111,6 +1189,7 @@
 
             tableEditingIndex = null;
             renderLog();
+            persistState();
             return;
           }
 
@@ -1171,12 +1250,21 @@
         };
 
         
-        function normalizePB(v){
-          if (v == null) return "";
-          const s = String(v).trim().toLowerCase();
-          if (s === "failed") return "Failed";
-          if (s === "passed" || s === "pass") return "Passed";
-          return s ? s.charAt(0).toUpperCase() + s.slice(1) : "";
+        function normalizePB(pbVal, commentVal, resultVal){
+          const comment = (commentVal || "").toLowerCase();
+          if (comment.includes("removed from the board")) return "-";
+
+          const s = (pbVal == null ? "" : String(pbVal)).trim().toLowerCase();
+          if (s === "failed" || s === "fail" || s === "f") return "Failed";
+          if (s === "passed" || s === "pass" || s === "p") return "Passed";
+
+          if (comment.includes("push button test failed") || comment.includes("and pb test failed")) {
+            return "Failed";
+          }
+
+          if (resultVal === "Failed") return "Failed";
+
+          return "Passed";
         }
 
         document.getElementById('exportPdfBtn').onclick = function() {
@@ -1233,7 +1321,7 @@
                 r.board,
                 r.cb,
                 r.date,
-                normalizePB(r.pb),
+                normalizePB(r.pb, r.comment, r.result),
                 r.comment,
                 r.result
               ]),
@@ -1267,7 +1355,7 @@
               r.date,
               r.rated,
               r.trip,
-              normalizePB(r.pb),
+              normalizePB(r.pb, r.comment, r.result),
               r.comment,
               r.recommendation ? r.recommendation : "–",
               r.result
@@ -1418,6 +1506,7 @@
           updateFilterOptionsFromSite();
           resetItemCounterFromLogged();
           renderLog();
+          persistState();
           alert("Imported " + imported + " row(s).");
         }
 
@@ -1466,6 +1555,7 @@
               window.RCD_DATA = result;
               populateLocations();
               updateFilterOptionsFromSite();
+              persistState();
 
               const locCount = Object.keys(result).length;
               let boardCount = 0;
@@ -1549,7 +1639,10 @@
         }
 
         // init
-        dateInput.value = new Date().toISOString().slice(0,10);
+        restoreState();
+        if (!dateInput.value) {
+          dateInput.value = new Date().toISOString().slice(0,10);
+        }
         populateLocations();
         updateFilterOptionsFromSite();
         renderLog();
