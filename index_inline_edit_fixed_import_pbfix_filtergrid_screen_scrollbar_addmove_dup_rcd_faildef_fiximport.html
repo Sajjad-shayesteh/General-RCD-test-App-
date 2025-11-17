@@ -1176,6 +1176,7 @@
               return el ? el.value : "";
             };
             const current = LOGGED[i];
+            const previousResult = current.result;
             current.date = getVal('[data-field="date"]');
             current.rated = getVal('[data-field="rated"]');
             current.trip = getVal('[data-field="trip"]');
@@ -1186,6 +1187,19 @@
 
             // re-run logic
             recomputeLoggedRow(current);
+
+            // If it just changed to Failed, capture the RCD part number
+            if (previousResult !== "Failed" && current.result === "Failed") {
+              const part = prompt("RCD part number?");
+              if (part && part.trim()) {
+                const trimmed = part.trim();
+                if (current.additional) {
+                  current.additional = current.additional + " RCD part number: " + trimmed;
+                } else {
+                  current.additional = "RCD part number: " + trimmed;
+                }
+              }
+            }
 
             tableEditingIndex = null;
             renderLog();
