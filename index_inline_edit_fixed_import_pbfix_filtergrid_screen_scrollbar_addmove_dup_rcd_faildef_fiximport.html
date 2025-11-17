@@ -64,6 +64,38 @@
       .hscroll-inner {
         height: 1px;
       }
+
+      /* modal */
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.3);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+      }
+      .modal {
+        background: #fff;
+        padding: 16px;
+        border-radius: 6px;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+        width: 320px;
+        max-width: calc(100% - 30px);
+      }
+      .modal h3 {
+        margin-top: 0;
+        margin-bottom: 10px;
+        font-size: 1rem;
+      }
+      .modal .modal-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .modal .modal-actions button {
+        width: 100%;
+      }
     </style>
     <script>
       // fallback in case rcd-data.js is missing
@@ -248,6 +280,7 @@
         <button id="exportCsvBtn" class="secondary">Export CSV</button>
         <button id="exportExcelBtn" class="secondary">Export Excel</button>
         <button id="exportPdfBtn" class="secondary">Export PDF</button>
+        <button id="clearLoggedBtn" class="secondary" style="background:#c00;">Clear Logged Tests</button>
       </div>
 
       <h2 style="margin-top:20px;">Logged Tests (<span id="loggedCount">0</span>)</h2>
@@ -289,6 +322,19 @@
     <script src="xlsx.full.min.js"></script>
     <script src="jspdf.umd.min.js"></script>
     <script src="jspdf.plugin.autotable.js"></script>
+
+    <div class="modal-backdrop" id="clearModal">
+      <div class="modal">
+        <h3>Clear logged tests</h3>
+        <p style="font-size:0.85rem;">Choose what to do before clearing the logged tests.</p>
+        <div class="modal-actions">
+          <button id="modalSave">Save</button>
+          <button id="modalSaveAs" class="secondary">Save As</button>
+          <button id="modalClear" style="background:#d9534f;">Clear without saving</button>
+          <button id="modalCancel" class="secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
 
     <script>
       window.onload = function() {
@@ -358,6 +404,12 @@
         const tableScroll = document.getElementById('logTableScroll');
         const gridScroll  = document.getElementById('filterGridScroll');
         const proxy = document.getElementById('hscrollProxy');
+        const clearLoggedBtn = document.getElementById('clearLoggedBtn');
+        const clearModal = document.getElementById('clearModal');
+        const modalSave = document.getElementById('modalSave');
+        const modalSaveAs = document.getElementById('modalSaveAs');
+        const modalClear = document.getElementById('modalClear');
+        const modalCancel = document.getElementById('modalCancel');
         const proxyInner = document.getElementById('hscrollInner');
 
         const STORAGE_KEY = 'rcd_autosave_v1';
@@ -1215,7 +1267,7 @@
         });
 
         /* ===== EXPORTS ===== */
-        document.getElementById('exportCsvBtn').onclick = function() {
+        function exportCsv() {
           if (!LOGGED.length) return;
           const header = ["Item #","Location","Switchboard","CB","Date","Rated (mA)","Trip (ms)","PB","Comment","Recommendation","Result","Additional Info"];
           const lines = [header.join(",")];
@@ -1234,9 +1286,9 @@
           a.download = "rcd-tests.csv";
           a.click();
           URL.revokeObjectURL(url);
-        };
+        }
 
-        document.getElementById('exportExcelBtn').onclick = function() {
+        function exportExcel(filename = "rcd-tests.xlsx") {
           if (!LOGGED.length) return;
           const rows = [
             ["Item #","Location","Switchboard","CB","Date","Rated (mA)","Trip (ms)","PB","Comment","Recommendation","Result","Additional Info"]
@@ -1260,28 +1312,10 @@
           const ws = XLSX.utils.aoa_to_sheet(rows);
           const wb = XLSX.utils.book_new();
           XLSX.utils.book_append_sheet(wb, ws, "RCD Tests");
-          XLSX.writeFile(wb, "rcd-tests.xlsx");
-        };
-
-        
-        function normalizePB(pbVal, commentVal, resultVal){
-          const comment = (commentVal || "").toLowerCase();
-          if (comment.includes("removed from the board")) return "-";
-
-          const s = (pbVal == null ? "" : String(pbVal)).trim().toLowerCase();
-          if (s === "failed" || s === "fail" || s === "f") return "Failed";
-          if (s === "passed" || s === "pass" || s === "p") return "Passed";
-
-          if (comment.includes("push button test failed") || comment.includes("and pb test failed")) {
-            return "Failed";
-          }
-
-          if (resultVal === "Failed") return "Failed";
-
-          return "Passed";
+          XLSX.writeFile(wb, filename || "rcd-tests.xlsx");
         }
 
-        document.getElementById('exportPdfBtn').onclick = function() {
+        function exportPdf() {
           if (!LOGGED.length) return;
           if (!(window.jspdf && window.jspdf.jsPDF)) {
             alert("jsPDF not loaded.");
@@ -1386,7 +1420,80 @@
           });
 
           doc.save("rcd_logged_report.pdf");
-        };
+        }
+
+        document.getElementById('exportCsvBtn').onclick = exportCsv;
+        document.getElementById('exportExcelBtn').onclick = () => exportExcel();
+        document.getElementById('exportPdfBtn').onclick = exportPdf;
+
+        function performClearLoggedTests() {
+          LOGGED = [];
+          tableEditingIndex = null;
+          ITEM_COUNTER = 1;
+          renderLog();
+          persistState();
+        }
+
+        function closeClearModal() {
+          clearModal.style.display = 'none';
+        }
+
+        clearLoggedBtn.addEventListener('click', () => {
+          if (!LOGGED.length) {
+            alert('No logged tests to clear.');
+            return;
+          }
+          clearModal.style.display = 'flex';
+        });
+
+        modalCancel.addEventListener('click', closeClearModal);
+        clearModal.addEventListener('click', (e) => {
+          if (e.target === clearModal) {
+            closeClearModal();
+          }
+        });
+
+        modalSave.addEventListener('click', () => {
+          exportExcel();
+          performClearLoggedTests();
+          closeClearModal();
+        });
+
+        modalSaveAs.addEventListener('click', () => {
+          let name = prompt('Enter a file name', 'rcd-tests.xlsx');
+          if (name === null) return;
+          name = name.trim();
+          if (!name) name = 'rcd-tests.xlsx';
+          if (!name.toLowerCase().endsWith('.xlsx')) {
+            name = name + '.xlsx';
+          }
+          exportExcel(name);
+          performClearLoggedTests();
+          closeClearModal();
+        });
+
+        modalClear.addEventListener('click', () => {
+          performClearLoggedTests();
+          closeClearModal();
+        });
+
+        
+        function normalizePB(pbVal, commentVal, resultVal){
+          const comment = (commentVal || "").toLowerCase();
+          if (comment.includes("removed from the board")) return "-";
+
+          const s = (pbVal == null ? "" : String(pbVal)).trim().toLowerCase();
+          if (s === "failed" || s === "fail" || s === "f") return "Failed";
+          if (s === "passed" || s === "pass" || s === "p") return "Passed";
+
+          if (comment.includes("push button test failed") || comment.includes("and pb test failed")) {
+            return "Failed";
+          }
+
+          if (resultVal === "Failed") return "Failed";
+
+          return "Passed";
+        }
 
         /* ===== IMPORT TEST RESULTS (RESTORED) ===== */
         importBtn.onclick = function() {
