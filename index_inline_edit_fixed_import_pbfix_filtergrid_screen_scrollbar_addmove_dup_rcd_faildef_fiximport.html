@@ -403,6 +403,7 @@
         const applyFilterBtn      = document.getElementById('applyFilterBtn');
         const filterGridBody      = document.getElementById('filterGridBody');
 
+        const appShell    = document.querySelector('.app');
         const tableScroll = document.getElementById('logTableScroll');
         const gridScroll  = document.getElementById('filterGridScroll');
         const proxy = document.getElementById('hscrollProxy');
@@ -425,6 +426,11 @@
 
         /* ===== proxy scrollbar sync (global horizontal bar) ===== */
         function updateProxyWidth() {
+          if (appShell) {
+            const appWidth = Math.max(window.innerWidth - 40, 320);
+            appShell.style.width = appWidth + 'px';
+          }
+
           const logWidth  = tableScroll ? tableScroll.scrollWidth : 0;
           const gridWidth = gridScroll  ? gridScroll.scrollWidth  : 0;
           const maxWidth  = Math.max(logWidth, gridWidth);
