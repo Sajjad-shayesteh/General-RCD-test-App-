@@ -10,8 +10,9 @@
       .app {
         /* allow the app to grow wider than the screen so the main screen scrollbar can handle horizontal scroll */
         overflow-x: visible;
-        max-width: none;
-        width: auto;
+        max-width: 1400px;
+        width: min(1400px, calc(100vw - 40px));
+        box-sizing: border-box;
         margin: 20px auto; background: #fff; border-radius: 8px;
         padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);
       }
@@ -1115,6 +1116,18 @@
             current.comment = getVal('[data-field="comment"]');
             current.recommendation = getVal('[data-field="recommendation"]');
             current.additional = getVal('[data-field="additional"]');
+
+            const isRemoved = (current.comment || "").toLowerCase().includes('removed from the board');
+            if (!isRemoved) {
+              if (!current.trip.trim()) {
+                alert("Please enter the trip time (ms) before saving.");
+                return;
+              }
+              if (!current.pb.trim()) {
+                alert("Please select the PB test result before saving.");
+                return;
+              }
+            }
 
             // re-run logic
             recomputeLoggedRow(current);
