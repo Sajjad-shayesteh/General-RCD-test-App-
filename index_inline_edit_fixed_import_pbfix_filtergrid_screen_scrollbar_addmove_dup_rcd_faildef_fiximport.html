@@ -1121,6 +1121,10 @@
         });
 /* ===== render log ===== */
         function renderLog() {
+          const prevWindowX = window.scrollX;
+          const prevWindowY = window.scrollY;
+          const prevTableScrollLeft = tableScroll ? tableScroll.scrollLeft : 0;
+
           logBody.innerHTML = "";
 
           if (!LOGGED.length) {
@@ -1136,12 +1140,14 @@
           }
 
           let visibleCount = 0;
+          let editingRowEl = null;
 
           LOGGED.forEach((row, idx) => {
             visibleCount++;
 
             const tr = document.createElement('tr');
             if (idx === tableEditingIndex) {
+              editingRowEl = tr;
               tr.innerHTML = `
                 <td>${idx + 1}</td>
                 <td>${row.itemNumber != null ? row.itemNumber : ''}</td>
@@ -1199,6 +1205,15 @@
           // show how many rows are currently visible (after filters)
           loggedCount.textContent = String(visibleCount);
           updateProxyWidth();
+
+          if (tableScroll) {
+            tableScroll.scrollLeft = prevTableScrollLeft;
+          }
+          window.scrollTo({ left: prevWindowX, top: prevWindowY });
+
+          if (editingRowEl) {
+            editingRowEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          }
         }
 
         /* ===== delegated click for the logged table ===== */
