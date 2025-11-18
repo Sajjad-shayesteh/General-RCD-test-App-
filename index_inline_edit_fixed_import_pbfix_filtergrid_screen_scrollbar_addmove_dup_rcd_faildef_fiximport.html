@@ -264,6 +264,14 @@
       <div class="section-title">Additional information</div>
       <textarea id="additionalInfo" placeholder="Part number, photo taken, failed – replace RCBO, etc."></textarea>
 
+      <div class="section-title" style="margin-bottom:6px;">PDF logo (JPEG)</div>
+      <div class="row">
+        <div>
+          <input type="file" id="logoInput" accept="image/jpeg" />
+          <div class="note">Optional logo displayed at the top of the exported PDF.</div>
+        </div>
+      </div>
+
       <!-- TEST IMPORT -->
       <div class="section-title" style="margin-bottom:6px;">Import test results from Excel</div>
       <div class="row">
@@ -387,6 +395,7 @@
         const commentSelect = document.getElementById('commentSelect');
         const recommendationBox = document.getElementById('recommendationBox');
         const additionalInfo    = document.getElementById('additionalInfo');
+        const logoInput         = document.getElementById('logoInput');
         const logBody        = document.getElementById('logBody');
         const loggedCount    = document.getElementById('loggedCount');
         const addTestBtn     = document.getElementById('addTestBtn');
@@ -422,6 +431,22 @@
         let ITEM_COUNTER = 1; // counter for item numbers
         let currentFilterLocation = "";
         let currentFilterBoard = "";
+        let logoDataUrl = null;
+
+        if (logoInput) {
+          logoInput.addEventListener('change', () => {
+            const file = logoInput.files && logoInput.files[0];
+            if (!file) {
+              logoDataUrl = null;
+              return;
+            }
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              logoDataUrl = e.target ? String(e.target.result) : null;
+            };
+            reader.readAsDataURL(file);
+          });
+        }
 
         /* ===== proxy scrollbar sync (global horizontal bar) ===== */
         function updateProxyWidth() {
@@ -1349,6 +1374,13 @@
           const margin = 14;
           const today = new Date().toISOString().slice(0,10);
           let currentY = 10;
+
+          if (logoDataUrl) {
+            const logoWidth = 60;
+            const logoHeight = 20;
+            doc.addImage(logoDataUrl, 'JPEG', margin, currentY, logoWidth, logoHeight);
+            currentY += logoHeight + 4;
+          }
 
           doc.setFontSize(14);
           doc.text("RCD Test Report", margin, currentY);
