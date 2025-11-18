@@ -16,6 +16,31 @@
         margin: 20px auto; background: #fff; border-radius: 8px;
         padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);
         transition: width 0.2s ease;
+        position: relative;
+        --app-logo-image: none;
+      }
+
+      .app::before {
+        content: "";
+        position: absolute;
+        inset: 20px;
+        background-image: var(--app-logo-image, none);
+        background-repeat: no-repeat;
+        background-position: center;
+        background-size: 70%;
+        opacity: 0.045;
+        pointer-events: none;
+        z-index: 0;
+        transition: opacity 0.15s ease;
+      }
+
+      .app:not(.app-has-watermark)::before {
+        opacity: 0;
+      }
+
+      .app > * {
+        position: relative;
+        z-index: 1;
       }
 
       h1 { margin-top: 0; }
@@ -396,6 +421,7 @@
         const recommendationBox = document.getElementById('recommendationBox');
         const additionalInfo    = document.getElementById('additionalInfo');
         const logoInput         = document.getElementById('logoInput');
+        const appContainer      = document.querySelector('.app');
         const logBody        = document.getElementById('logBody');
         const loggedCount    = document.getElementById('loggedCount');
         const addTestBtn     = document.getElementById('addTestBtn');
@@ -434,11 +460,24 @@
         let logoDataUrl = null;
         let logoDimensions = null;
 
+        function updateAppWatermark() {
+          if (!appContainer) return;
+          if (logoDataUrl) {
+            appContainer.style.setProperty('--app-logo-image', `url(${logoDataUrl})`);
+            appContainer.classList.add('app-has-watermark');
+          } else {
+            appContainer.style.setProperty('--app-logo-image', 'none');
+            appContainer.classList.remove('app-has-watermark');
+          }
+        }
+
         if (logoInput) {
           logoInput.addEventListener('change', () => {
             const file = logoInput.files && logoInput.files[0];
             if (!file) {
               logoDataUrl = null;
+              logoDimensions = null;
+              updateAppWatermark();
               return;
             }
             const reader = new FileReader();
@@ -447,6 +486,7 @@
               if (!dataUrl) {
                 logoDataUrl = null;
                 logoDimensions = null;
+                updateAppWatermark();
                 return;
               }
 
@@ -458,10 +498,12 @@
                 logoDimensions = (naturalWidth && naturalHeight)
                   ? { width: naturalWidth, height: naturalHeight }
                   : null;
+                updateAppWatermark();
               };
               img.onerror = () => {
                 logoDataUrl = null;
                 logoDimensions = null;
+                updateAppWatermark();
               };
               img.src = dataUrl;
             };
