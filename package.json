@@ -1,0 +1,45 @@
+{
+  "name": "general-rcd-test-app",
+  "version": "1.0.0",
+  "description": "Desktop-packaged version of the RCD test app.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist-win": "electron-builder --win",
+    "dist": "electron-builder"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.example.generalrcdtestapp",
+    "productName": "General RCD Test App",
+    "files": [
+      "main.js",
+      "index_inline_edit_fixed_import_pbfix_filtergrid_screen_scrollbar_addmove_dup_rcd_faildef_fiximport.html",
+      "jspdf.umd.min.js",
+      "jspdf.plugin.autotable.js",
+      "xlsx.full.min.js",
+      "rcd-data.js"
+    ],
+    "directories": {
+      "buildResources": "build"
+    },
+    "extraMetadata": {
+      "main": "main.js"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
+  }
+}
