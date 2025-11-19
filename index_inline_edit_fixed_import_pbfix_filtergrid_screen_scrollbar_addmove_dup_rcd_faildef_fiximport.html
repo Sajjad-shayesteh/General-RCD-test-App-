@@ -123,6 +123,11 @@
       .modal .modal-actions button {
         width: 100%;
       }
+
+      .dup-highlight {
+        background: #fff3cd;
+        transition: background 0.4s ease;
+      }
     </style>
     <script>
       // fallback in case rcd-data.js is missing
@@ -202,6 +207,7 @@
         <div>
           <label for="ratedInput">Rated trip current (mA)</label>
           <select id="ratedInput">
+            <option value="10">10 mA</option>
             <option value="30">30 mA</option>
             <option value="100">100 mA</option>
             <option value="300">300 mA</option>
@@ -377,7 +383,7 @@
     <script>
       window.onload = function() {
         /* ===== constants ===== */
-        const TRIP_LIMITS = { 30: 300, 100: 300, 300: 300, 500: 300 };
+        const TRIP_LIMITS = { 10: 40, 30: 300, 100: 300, 300: 300, 500: 300 };
         const COMMENT_RECO = {
           "Injection test failed": "Replace the RCBO",
           "Push button test failed": "Replace the RCBO",
@@ -386,6 +392,17 @@
           "No access to DB / couldn’t test": "Return to site when DB is accessible / reschedule",
           "Removed from the board(doesn’t exist)": "Removed from the board(doesn’t exist)"
         };
+        function isTripFailForRated(rated, tripVal) {
+          const limit = TRIP_LIMITS[rated] || 300;
+          const tripNum = Number((tripVal || "").trim());
+          if (isNaN(tripNum)) return false;
+
+          if (String(rated) === "10") {
+            return tripNum <= 0 || tripNum > limit;
+          }
+
+          return tripNum > limit;
+        }
         const HEADER_ALIASES = {
           itemNumber: ["item","item number","item #","id"],
           location: ["location","site","area"],
@@ -463,6 +480,41 @@
         let currentFilterBoard = "";
         let logoDataUrl = null;
         let logoDimensions = null;
+
+        function findDuplicateIndex(candidate, skipIndex = null) {
+          if (!candidate || !LOGGED.length) return -1;
+          const loc = (candidate.location || "").trim();
+          const board = (candidate.board || "").trim();
+          const cb = (candidate.cb || "").trim();
+
+          return LOGGED.findIndex((row, idx) => {
+            if (skipIndex !== null && idx === skipIndex) return false;
+            return (row.location || "").trim() === loc &&
+                   (row.board || "").trim() === board &&
+                   (row.cb || "").trim() === cb;
+          });
+        }
+
+        function showDuplicatePopup(existingIndex, candidate) {
+          if (existingIndex === -1) return;
+
+          const boardLabel = candidate.board ? `Switchboard ${candidate.board}` : "Switchboard";
+          const cbLabel = candidate.cb ? `CB ${candidate.cb}` : "CB";
+          const locLabel = candidate.location ? ` at ${candidate.location}` : "";
+          const message = `Test already logged – ${boardLabel} / ${cbLabel}${locLabel} is already in Logged Tests.`;
+          const goTo = confirm(message + "\n\nSelect OK to go to the existing test or Cancel to stay here.");
+
+          if (goTo) {
+            renderLog();
+            const rows = logBody ? logBody.querySelectorAll('tr') : null;
+            const rowEl = rows && rows[existingIndex] ? rows[existingIndex] : null;
+            if (rowEl) {
+              rowEl.classList.add('dup-highlight');
+              rowEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+              setTimeout(() => rowEl.classList.remove('dup-highlight'), 2000);
+            }
+          }
+        }
 
         function updateAppWatermark() {
           if (!appContainer) return;
@@ -758,8 +810,7 @@
             recommendationBox.value = "Replace the RCBO";
             return;
           }
-          const tripNum = Number(trip);
-          if (!isNaN(tripNum) && tripNum > (TRIP_LIMITS[rated] || 300)) {
+          if (isTripFailForRated(rated, trip)) {
             commentSelect.value = "Injection test failed";
             recommendationBox.value = "Replace the RCBO";
           }
@@ -789,6 +840,11 @@
             editingIndex = null;
             addTestBtn.textContent = "Add Test";
           } else {
+            const dupIndex = findDuplicateIndex(rec);
+            if (dupIndex !== -1) {
+              showDuplicatePopup(dupIndex, rec);
+              return;
+            }
             rec.itemNumber = ITEM_COUNTER++;
             LOGGED.push(rec);
           }
@@ -863,7 +919,6 @@
         /* ===== updated recompute for LOGGED rows (inline edit) ===== */
         function recomputeLoggedRow(rec) {
           const rated = rec.rated || "30";
-          const limit = TRIP_LIMITS[rated] || 300;
 
           const AUTO_COMMENTS = [
             "Injection test failed",
@@ -873,8 +928,7 @@
 
           const hadAutoBefore = AUTO_COMMENTS.includes(rec.comment);
 
-          const tripNum = Number((rec.trip || "").trim());
-          const tripFail = !isNaN(tripNum) && tripNum > limit;
+          const tripFail = isTripFailForRated(rated, rec.trip);
           const pbFail = rec.pb === "Failed";
 
           let newComment = rec.comment;
@@ -1027,6 +1081,7 @@
                   <td><input type="date" class="fg-date" value="${today}"></td>
                   <td>
                     <select class="fg-rated">
+                      <option value="10">10 mA</option>
                       <option value="30">30 mA</option>
                       <option value="100">100 mA</option>
                       <option value="300">300 mA</option>
@@ -1164,15 +1219,9 @@
             return;
           }
 
-          // Prevent adding the same item more than once from the filter grid
-          const duplicate = LOGGED.some(r =>
-            r.location === loc &&
-            r.board === board &&
-            r.cb === cb &&
-            r.date === dateVal
-          );
-          if (duplicate) {
-            alert("This item is already in Logged Tests.");
+          const duplicateIndex = findDuplicateIndex({ location: loc, board, cb });
+          if (duplicateIndex !== -1) {
+            showDuplicatePopup(duplicateIndex, { location: loc, board, cb });
             return;
           }
 
@@ -1744,6 +1793,12 @@
                   window.RCD_DATA[rec.location][rec.board].push(rec.cb);
                 }
               }
+            }
+
+            const duplicateIndex = findDuplicateIndex(rec);
+            if (duplicateIndex !== -1) {
+              showDuplicatePopup(duplicateIndex, rec);
+              continue;
             }
 
             LOGGED.push(rec);
