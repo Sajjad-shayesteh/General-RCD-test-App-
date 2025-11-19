@@ -161,6 +161,9 @@
         <div>
           <button id="siteImportBtn" class="small">Import site structure</button>
         </div>
+        <div>
+          <button id="siteClearBtn" class="small secondary">Clear site structure</button>
+        </div>
         <div class="note" style="align-self:center;">
           Excel can have: Location, Board/Switchboard/DB, CB/Breaker/Circuit (any order). Blank rows will use previous location/board.
         </div>
@@ -429,6 +432,7 @@
         const importBtn      = document.getElementById('importBtn');
         const siteExcelInput = document.getElementById('siteExcelInput');
         const siteImportBtn  = document.getElementById('siteImportBtn');
+        const siteClearBtn   = document.getElementById('siteClearBtn');
         const custName       = document.getElementById('custName');
         const custSite       = document.getElementById('custSite');
         const jobNumber      = document.getElementById('jobNumber');
@@ -1814,6 +1818,20 @@
           };
           reader.readAsArrayBuffer(file);
         };
+
+        if (siteClearBtn) {
+          siteClearBtn.onclick = function() {
+            if (!confirm("Clear all locations, boards, and CBs?")) return;
+
+            window.RCD_DATA = {};
+            currentFilterLocation = "";
+            currentFilterBoard = "";
+            siteExcelInput.value = "";
+            populateLocations();
+            updateFilterOptionsFromSite();
+            persistState();
+          };
+        }
 
         function buildSiteStructureFromRows(rows) {
           if (!rows || !rows.length) {
