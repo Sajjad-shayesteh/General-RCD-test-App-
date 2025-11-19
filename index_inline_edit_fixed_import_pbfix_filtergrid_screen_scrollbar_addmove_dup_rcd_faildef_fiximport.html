@@ -214,6 +214,7 @@
           <label for="ratedInput">Rated trip current (mA)</label>
           <select id="ratedInput">
             <option value="30">30 mA</option>
+            <option value="10">10 mA</option>
             <option value="100">100 mA</option>
             <option value="300">300 mA</option>
             <option value="500">500 mA</option>
@@ -503,13 +504,11 @@
           const candLocation = normalizeKeyValue(candidate.location);
           const candBoard = normalizeKeyValue(candidate.board);
           const candCb = normalizeKeyValue(candidate.cb);
-          const candDate = (candidate.date || "").trim();
 
           return LOGGED.findIndex(r =>
             normalizeKeyValue(r.location) === candLocation &&
             normalizeKeyValue(r.board) === candBoard &&
-            normalizeKeyValue(r.cb) === candCb &&
-            (r.date || "").trim() === candDate
+            normalizeKeyValue(r.cb) === candCb
           );
         }
 
@@ -1115,6 +1114,7 @@
                   <td>
                     <select class="fg-rated">
                       <option value="30">30 mA</option>
+                      <option value="10">10 mA</option>
                       <option value="100">100 mA</option>
                       <option value="300">300 mA</option>
                       <option value="500">500 mA</option>
