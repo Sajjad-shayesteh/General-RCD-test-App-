@@ -16,6 +16,31 @@
         margin: 20px auto; background: #fff; border-radius: 8px;
         padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);
         transition: width 0.2s ease;
+        position: relative;
+        --app-logo-image: none;
+      }
+
+      .app::before {
+        content: "";
+        position: absolute;
+        inset: 20px;
+        background-image: var(--app-logo-image, none);
+        background-repeat: no-repeat;
+        background-position: center;
+        background-size: 70%;
+        opacity: 0.12;
+        pointer-events: none;
+        z-index: 0;
+        transition: opacity 0.15s ease;
+      }
+
+      .app:not(.app-has-watermark)::before {
+        opacity: 0;
+      }
+
+      .app > * {
+        position: relative;
+        z-index: 1;
       }
 
       h1 { margin-top: 0; }
@@ -135,6 +160,9 @@
         </div>
         <div>
           <button id="siteImportBtn" class="small">Import site structure</button>
+        </div>
+        <div>
+          <button id="siteClearBtn" class="small secondary">Clear site structure</button>
         </div>
         <div class="note" style="align-self:center;">
           Excel can have: Location, Board/Switchboard/DB, CB/Breaker/Circuit (any order). Blank rows will use previous location/board.
@@ -264,6 +292,14 @@
       <div class="section-title">Additional information</div>
       <textarea id="additionalInfo" placeholder="Part number, photo taken, failed – replace RCBO, etc."></textarea>
 
+      <div class="section-title" style="margin-bottom:6px;">PDF logo (JPEG)</div>
+      <div class="row">
+        <div>
+          <input type="file" id="logoInput" accept="image/jpeg" />
+          <div class="note">Optional logo displayed at the top of the exported PDF.</div>
+        </div>
+      </div>
+
       <!-- TEST IMPORT -->
       <div class="section-title" style="margin-bottom:6px;">Import test results from Excel</div>
       <div class="row">
@@ -387,6 +423,8 @@
         const commentSelect = document.getElementById('commentSelect');
         const recommendationBox = document.getElementById('recommendationBox');
         const additionalInfo    = document.getElementById('additionalInfo');
+        const logoInput         = document.getElementById('logoInput');
+        const appContainer      = document.querySelector('.app');
         const logBody        = document.getElementById('logBody');
         const loggedCount    = document.getElementById('loggedCount');
         const addTestBtn     = document.getElementById('addTestBtn');
@@ -394,6 +432,7 @@
         const importBtn      = document.getElementById('importBtn');
         const siteExcelInput = document.getElementById('siteExcelInput');
         const siteImportBtn  = document.getElementById('siteImportBtn');
+        const siteClearBtn   = document.getElementById('siteClearBtn');
         const custName       = document.getElementById('custName');
         const custSite       = document.getElementById('custSite');
         const jobNumber      = document.getElementById('jobNumber');
@@ -422,6 +461,59 @@
         let ITEM_COUNTER = 1; // counter for item numbers
         let currentFilterLocation = "";
         let currentFilterBoard = "";
+        let logoDataUrl = null;
+        let logoDimensions = null;
+
+        function updateAppWatermark() {
+          if (!appContainer) return;
+          if (logoDataUrl) {
+            appContainer.style.setProperty('--app-logo-image', `url(${logoDataUrl})`);
+            appContainer.classList.add('app-has-watermark');
+          } else {
+            appContainer.style.setProperty('--app-logo-image', 'none');
+            appContainer.classList.remove('app-has-watermark');
+          }
+        }
+
+        if (logoInput) {
+          logoInput.addEventListener('change', () => {
+            const file = logoInput.files && logoInput.files[0];
+            if (!file) {
+              logoDataUrl = null;
+              logoDimensions = null;
+              updateAppWatermark();
+              return;
+            }
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const dataUrl = e.target ? String(e.target.result) : null;
+              if (!dataUrl) {
+                logoDataUrl = null;
+                logoDimensions = null;
+                updateAppWatermark();
+                return;
+              }
+
+              const img = new Image();
+              img.onload = () => {
+                logoDataUrl = dataUrl;
+                const naturalWidth = img.naturalWidth || img.width;
+                const naturalHeight = img.naturalHeight || img.height;
+                logoDimensions = (naturalWidth && naturalHeight)
+                  ? { width: naturalWidth, height: naturalHeight }
+                  : null;
+                updateAppWatermark();
+              };
+              img.onerror = () => {
+                logoDataUrl = null;
+                logoDimensions = null;
+                updateAppWatermark();
+              };
+              img.src = dataUrl;
+            };
+            reader.readAsDataURL(file);
+          });
+        }
 
         /* ===== proxy scrollbar sync (global horizontal bar) ===== */
         function updateProxyWidth() {
@@ -1121,6 +1213,10 @@
         });
 /* ===== render log ===== */
         function renderLog() {
+          const prevWindowX = window.scrollX;
+          const prevWindowY = window.scrollY;
+          const prevTableScrollLeft = tableScroll ? tableScroll.scrollLeft : 0;
+
           logBody.innerHTML = "";
 
           if (!LOGGED.length) {
@@ -1136,12 +1232,14 @@
           }
 
           let visibleCount = 0;
+          let editingRowEl = null;
 
           LOGGED.forEach((row, idx) => {
             visibleCount++;
 
             const tr = document.createElement('tr');
             if (idx === tableEditingIndex) {
+              editingRowEl = tr;
               tr.innerHTML = `
                 <td>${idx + 1}</td>
                 <td>${row.itemNumber != null ? row.itemNumber : ''}</td>
@@ -1199,6 +1297,15 @@
           // show how many rows are currently visible (after filters)
           loggedCount.textContent = String(visibleCount);
           updateProxyWidth();
+
+          if (tableScroll) {
+            tableScroll.scrollLeft = prevTableScrollLeft;
+          }
+          window.scrollTo({ left: prevWindowX, top: prevWindowY });
+
+          if (editingRowEl) {
+            editingRowEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          }
         }
 
         /* ===== delegated click for the logged table ===== */
@@ -1332,8 +1439,20 @@
           const { jsPDF } = window.jspdf;
           const doc = new jsPDF({ orientation: "landscape" });
           const margin = 14;
+          const pageWidth = doc.internal.pageSize.getWidth();
           const today = new Date().toISOString().slice(0,10);
           let currentY = 10;
+
+          if (logoDataUrl) {
+            const usableWidth = pageWidth - margin * 2;
+            const logoWidth = usableWidth * (2/3);
+            const heightRatio = (logoDimensions && logoDimensions.width && logoDimensions.height)
+              ? logoDimensions.height / logoDimensions.width
+              : (1/3);
+            const logoHeight = logoWidth * heightRatio;
+            doc.addImage(logoDataUrl, 'JPEG', margin, currentY, logoWidth, logoHeight);
+            currentY += logoHeight + 4;
+          }
 
           doc.setFontSize(14);
           doc.text("RCD Test Report", margin, currentY);
@@ -1355,7 +1474,6 @@
           doc.text("Introduction", margin, currentY);
           currentY += 5;
           doc.setFontSize(9);
-          const pageWidth = doc.internal.pageSize.getWidth();
           RCD_INTRO.forEach(par => {
             const lines = doc.splitTextToSize(par, pageWidth - margin*2);
             doc.text(lines, margin, currentY);
@@ -1700,6 +1818,20 @@
           };
           reader.readAsArrayBuffer(file);
         };
+
+        if (siteClearBtn) {
+          siteClearBtn.onclick = function() {
+            if (!confirm("Clear all locations, boards, and CBs?")) return;
+
+            window.RCD_DATA = {};
+            currentFilterLocation = "";
+            currentFilterBoard = "";
+            siteExcelInput.value = "";
+            populateLocations();
+            updateFilterOptionsFromSite();
+            persistState();
+          };
+        }
 
         function buildSiteStructureFromRows(rows) {
           if (!rows || !rows.length) {
