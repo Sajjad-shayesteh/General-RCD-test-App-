@@ -123,6 +123,17 @@
       .modal .modal-actions button {
         width: 100%;
       }
+
+      .row-highlight {
+        animation: highlightFlash 2s ease-in-out;
+        background: #fff3cd;
+      }
+
+      @keyframes highlightFlash {
+        0% { box-shadow: 0 0 0 rgba(255,193,7,0.7); }
+        50% { box-shadow: 0 0 12px rgba(255,193,7,0.9); }
+        100% { box-shadow: 0 0 0 rgba(255,193,7,0.7); }
+      }
     </style>
     <script>
       // fallback in case rcd-data.js is missing
@@ -374,6 +385,17 @@
       </div>
     </div>
 
+    <div class="modal-backdrop" id="duplicateModal">
+      <div class="modal">
+        <h3>Test already logged</h3>
+        <p id="duplicateMessage" style="font-size:0.85rem;">This test is already in Logged Tests.</p>
+        <div class="modal-actions">
+          <button id="duplicateGo">Go to the test</button>
+          <button id="duplicateCancel" class="secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <script>
       window.onload = function() {
         /* ===== constants ===== */
@@ -411,6 +433,10 @@
           "Our role is to test, record the results and identify any RCDs that do not meet the required performance. If an RCD fails any part of the test, it is considered non-compliant and unsafe for continued service. It is the customer’s responsibility to arrange repair or replacement of any failed RCDs and to ensure the installation is brought back into compliance.",
           "Test frequency (typical): Push-button test at least every 6 months (more often in harsh or high-risk environments as per AS/NZS 3760 tables); injection/operating-time test at least every 12 months, or to the site-specific/industry-specific schedule."
         ];
+
+        function commentAllowsMissingResults(comment) {
+          return (comment || "").toLowerCase().includes("no access to db");
+        }
 
         /* ===== dom ===== */
         const locationSelect = document.getElementById('locationSelect');
@@ -451,6 +477,10 @@
         const modalSaveAs = document.getElementById('modalSaveAs');
         const modalClear = document.getElementById('modalClear');
         const modalCancel = document.getElementById('modalCancel');
+        const duplicateModal = document.getElementById('duplicateModal');
+        const duplicateMessage = document.getElementById('duplicateMessage');
+        const duplicateGo = document.getElementById('duplicateGo');
+        const duplicateCancel = document.getElementById('duplicateCancel');
         const proxyInner = document.getElementById('hscrollInner');
 
         const STORAGE_KEY = 'rcd_autosave_v1';
@@ -463,6 +493,7 @@
         let currentFilterBoard = "";
         let logoDataUrl = null;
         let logoDimensions = null;
+        let pendingDuplicateIndex = null;
 
         function updateAppWatermark() {
           if (!appContainer) return;
@@ -539,6 +570,28 @@
           if (gridScroll)  gridScroll.scrollLeft  = x;
           syncingFrom = null;
         });
+
+        function focusLoggedRow(index) {
+          if (!logBody) return;
+          const row = logBody.querySelector(`tr[data-log-index="${index}"]`);
+          if (!row) return;
+          row.classList.add('row-highlight');
+          row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          setTimeout(() => row.classList.remove('row-highlight'), 2000);
+        }
+
+        function hideDuplicateModal() {
+          pendingDuplicateIndex = null;
+          if (duplicateModal) duplicateModal.style.display = 'none';
+        }
+
+        function showDuplicateModal(index, message) {
+          pendingDuplicateIndex = index;
+          if (duplicateMessage) {
+            duplicateMessage.textContent = message || 'This test is already in Logged Tests.';
+          }
+          if (duplicateModal) duplicateModal.style.display = 'flex';
+        }
 
         if (tableScroll) {
           tableScroll.addEventListener('scroll', () => {
@@ -816,7 +869,7 @@
           }
 
           const removed = (comment || "").toLowerCase().includes("removed from the board");
-          if (!removed && (!trip || !pb)) {
+          if (!removed && !commentAllowsMissingResults(comment) && (!trip || !pb)) {
             alert("Enter both a trip time and PB result before adding.");
             return null;
           }
@@ -1159,20 +1212,23 @@
           const commentVal = commentEl && commentEl.value.trim();
           const isRemoved = (commentVal || "").toLowerCase().includes("removed from the board");
 
-          if (!isRemoved && (!hasTrip || !hasPb)) {
+          if (!isRemoved && !commentAllowsMissingResults(commentVal) && (!hasTrip || !hasPb)) {
             alert("Enter both a trip time and PB result before adding.");
             return;
           }
 
           // Prevent adding the same item more than once from the filter grid
-          const duplicate = LOGGED.some(r =>
+          const duplicateIndex = LOGGED.findIndex(r =>
             r.location === loc &&
             r.board === board &&
             r.cb === cb &&
             r.date === dateVal
           );
-          if (duplicate) {
-            alert("This item is already in Logged Tests.");
+          if (duplicateIndex !== -1) {
+            const summaryParts = [loc, board, cb].filter(Boolean);
+            const summary = summaryParts.length ? summaryParts.join(' / ') : 'This circuit';
+            const dateSummary = dateVal ? ` dated ${dateVal}` : '';
+            showDuplicateModal(duplicateIndex, `${summary}${dateSummary} is already in Logged Tests.`);
             return;
           }
 
@@ -1238,6 +1294,7 @@
             visibleCount++;
 
             const tr = document.createElement('tr');
+            tr.dataset.logIndex = String(idx);
             if (idx === tableEditingIndex) {
               editingRowEl = tr;
               tr.innerHTML = `
@@ -1347,7 +1404,7 @@
             current.additional = getVal('[data-field="additional"]');
 
             const removed = (current.comment || "").toLowerCase().includes("removed from the board");
-            if (!removed && (!current.trip || !current.pb)) {
+            if (!removed && !commentAllowsMissingResults(current.comment) && (!current.trip || !current.pb)) {
               alert("Enter both a trip time (ms) and PB test result before saving.");
               return;
             }
@@ -1481,6 +1538,27 @@
           });
           currentY += 4;
 
+          doc.setFontSize(11);
+          doc.text("Trip time guidance", margin, currentY);
+          currentY += 4;
+
+          const tripGuidanceRows = Object.keys(TRIP_LIMITS)
+            .map(key => Number(key))
+            .sort((a, b) => a - b)
+            .map(rating => [
+              `${rating} mA RCBO`,
+              `${TRIP_LIMITS[rating]} ms maximum trip time`
+            ]);
+
+          doc.autoTable({
+            startY: currentY,
+            head: [["Device rating", "Acceptable trip time (ms)"]],
+            body: tripGuidanceRows,
+            styles: { fontSize: 8 },
+            headStyles: { fillColor: [230, 230, 230] }
+          });
+          currentY = doc.lastAutoTable.finalY + 8;
+
           const failed = LOGGED.filter(r => r.result === "Failed");
           doc.setFontSize(11);
           doc.text("Failed tests", margin, currentY);
@@ -1603,7 +1681,24 @@
           closeClearModal();
         });
 
-        
+        if (duplicateGo && duplicateCancel && duplicateModal) {
+          duplicateGo.addEventListener('click', () => {
+            if (pendingDuplicateIndex !== null) {
+              focusLoggedRow(pendingDuplicateIndex);
+            }
+            hideDuplicateModal();
+          });
+
+          duplicateCancel.addEventListener('click', hideDuplicateModal);
+
+          duplicateModal.addEventListener('click', (e) => {
+            if (e.target === duplicateModal) {
+              hideDuplicateModal();
+            }
+          });
+        }
+
+
         function normalizePB(pbVal, commentVal, resultVal){
           const comment = (commentVal || "").toLowerCase();
           if (comment.includes("removed from the board")) return "-";
