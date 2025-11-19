@@ -399,7 +399,7 @@
     <script>
       window.onload = function() {
         /* ===== constants ===== */
-        const TRIP_LIMITS = { 30: 300, 100: 300, 300: 300, 500: 300 };
+        const TRIP_LIMITS = { 10: 40, 30: 300, 100: 300, 300: 300, 500: 300 };
         const COMMENT_RECO = {
           "Injection test failed": "Replace the RCBO",
           "Push button test failed": "Replace the RCBO",
@@ -494,6 +494,31 @@
         let logoDataUrl = null;
         let logoDimensions = null;
         let pendingDuplicateIndex = null;
+
+        function normalizeKeyValue(val) {
+          return (val == null ? "" : String(val)).trim().toLowerCase();
+        }
+
+        function findLoggedDuplicateIndex(candidate) {
+          const candLocation = normalizeKeyValue(candidate.location);
+          const candBoard = normalizeKeyValue(candidate.board);
+          const candCb = normalizeKeyValue(candidate.cb);
+          const candDate = (candidate.date || "").trim();
+
+          return LOGGED.findIndex(r =>
+            normalizeKeyValue(r.location) === candLocation &&
+            normalizeKeyValue(r.board) === candBoard &&
+            normalizeKeyValue(r.cb) === candCb &&
+            (r.date || "").trim() === candDate
+          );
+        }
+
+        function buildDuplicateMessage(rec) {
+          const summaryParts = [rec.location, rec.board, rec.cb].filter(Boolean);
+          const summary = summaryParts.length ? summaryParts.join(' / ') : 'This circuit';
+          const dateSummary = rec.date ? ` dated ${rec.date}` : '';
+          return `${summary}${dateSummary} is already in Logged Tests.`;
+        }
 
         function updateAppWatermark() {
           if (!appContainer) return;
@@ -806,13 +831,14 @@
           const pb = pbSelect.value;
           const trip = tripInput.value.trim();
           const rated = ratedInput.value;
+          const limit = TRIP_LIMITS[rated] || 300;
           if (pb === "Failed") {
             commentSelect.value = "Push button test failed";
             recommendationBox.value = "Replace the RCBO";
             return;
           }
           const tripNum = Number(trip);
-          if (!isNaN(tripNum) && tripNum > (TRIP_LIMITS[rated] || 300)) {
+          if (!isNaN(tripNum) && (tripNum <= 0 || tripNum > limit)) {
             commentSelect.value = "Injection test failed";
             recommendationBox.value = "Replace the RCBO";
           }
@@ -822,6 +848,14 @@
         addTestBtn.onclick = function() {
           const rec = collectFormRecord();
           if (!rec) return;
+
+          if (editingIndex === null) {
+            const duplicateIndex = findLoggedDuplicateIndex(rec);
+            if (duplicateIndex !== -1) {
+              showDuplicateModal(duplicateIndex, buildDuplicateMessage(rec));
+              return;
+            }
+          }
 
           // If the test has failed, capture the RCD part number
           if (rec.result === "Failed") {
@@ -927,7 +961,7 @@
           const hadAutoBefore = AUTO_COMMENTS.includes(rec.comment);
 
           const tripNum = Number((rec.trip || "").trim());
-          const tripFail = !isNaN(tripNum) && tripNum > limit;
+          const tripFail = !isNaN(tripNum) && (tripNum <= 0 || tripNum > limit);
           const pbFail = rec.pb === "Failed";
 
           let newComment = rec.comment;
@@ -1218,17 +1252,19 @@
           }
 
           // Prevent adding the same item more than once from the filter grid
-          const duplicateIndex = LOGGED.findIndex(r =>
-            r.location === loc &&
-            r.board === board &&
-            r.cb === cb &&
-            r.date === dateVal
-          );
+          const duplicateIndex = findLoggedDuplicateIndex({
+            location: loc,
+            board,
+            cb,
+            date: dateVal
+          });
           if (duplicateIndex !== -1) {
-            const summaryParts = [loc, board, cb].filter(Boolean);
-            const summary = summaryParts.length ? summaryParts.join(' / ') : 'This circuit';
-            const dateSummary = dateVal ? ` dated ${dateVal}` : '';
-            showDuplicateModal(duplicateIndex, `${summary}${dateSummary} is already in Logged Tests.`);
+            showDuplicateModal(duplicateIndex, buildDuplicateMessage({
+              location: loc,
+              board,
+              cb,
+              date: dateVal
+            }));
             return;
           }
 
@@ -1770,6 +1806,7 @@
           let imported = 0;
           let lastLocation = "";
           let lastBoard = "";
+          let firstDuplicate = null;
 
           for (let r = headerRowIndex + 1; r < rows.length; r++) {
             const row = rows[r];
@@ -1789,18 +1826,7 @@
             if (location) lastLocation = location;
             if (board)    lastBoard    = board;
 
-            let itemNumRaw = getCol("itemNumber");
-            let itemNum = itemNumRaw ? Number(itemNumRaw) : null;
-            if (!itemNum || isNaN(itemNum)) {
-              itemNum = ITEM_COUNTER++;
-            } else {
-              if (itemNum >= ITEM_COUNTER) {
-                ITEM_COUNTER = itemNum + 1;
-              }
-            }
-
-            const rec = {
-              itemNumber: itemNum,
+            const recBase = {
               location: location,
               board: board,
               cb: cb,
@@ -1814,32 +1840,53 @@
               additional: getCol("additional")
             };
 
-            if (!rec.result) {
+            if (!recBase.result) {
               // Only treat Injection / PB failures as failed tests; everything else is not a failed test.
               let res = "Passed";
-              if (rec.comment === "Injection test failed" ||
-                  rec.comment === "Push button test failed" ||
-                  rec.comment === "Injection and PB test failed") {
+              if (recBase.comment === "Injection test failed" ||
+                  recBase.comment === "Push button test failed" ||
+                  recBase.comment === "Injection and PB test failed") {
                 res = "Failed";
               }
-              if ((rec.comment || "").toLowerCase().includes("removed from the board")) {
+              if ((recBase.comment || "").toLowerCase().includes("removed from the board")) {
                 res = "";
               }
-              rec.result = res;
+              recBase.result = res;
             }
-            if (!rec.recommendation && COMMENT_RECO[rec.comment]) {
-              rec.recommendation = COMMENT_RECO[rec.comment];
+            if (!recBase.recommendation && COMMENT_RECO[recBase.comment]) {
+              recBase.recommendation = COMMENT_RECO[recBase.comment];
             }
 
-            if (rec.location) {
-              if (!window.RCD_DATA[rec.location]) window.RCD_DATA[rec.location] = {};
-              if (rec.board) {
-                if (!window.RCD_DATA[rec.location][rec.board]) window.RCD_DATA[rec.location][rec.board] = [];
-                if (rec.cb && !window.RCD_DATA[rec.location][rec.board].includes(rec.cb)) {
-                  window.RCD_DATA[rec.location][rec.board].push(rec.cb);
+            if (recBase.location) {
+              if (!window.RCD_DATA[recBase.location]) window.RCD_DATA[recBase.location] = {};
+              if (recBase.board) {
+                if (!window.RCD_DATA[recBase.location][recBase.board]) window.RCD_DATA[recBase.location][recBase.board] = [];
+                if (recBase.cb && !window.RCD_DATA[recBase.location][recBase.board].includes(recBase.cb)) {
+                  window.RCD_DATA[recBase.location][recBase.board].push(recBase.cb);
                 }
               }
             }
+
+            const duplicateIndex = findLoggedDuplicateIndex(recBase);
+            if (duplicateIndex !== -1) {
+              if (!firstDuplicate) {
+                firstDuplicate = { index: duplicateIndex, message: buildDuplicateMessage(recBase) };
+              }
+              continue;
+            }
+
+            let itemNumRaw = getCol("itemNumber");
+            let itemNum = itemNumRaw ? Number(itemNumRaw) : null;
+            if (!itemNum || isNaN(itemNum)) {
+              itemNum = ITEM_COUNTER++;
+            } else if (itemNum >= ITEM_COUNTER) {
+              ITEM_COUNTER = itemNum + 1;
+            }
+
+            const rec = {
+              itemNumber: itemNum,
+              ...recBase
+            };
 
             LOGGED.push(rec);
             imported++;
@@ -1849,6 +1896,9 @@
           resetItemCounterFromLogged();
           renderLog();
           persistState();
+          if (firstDuplicate) {
+            showDuplicateModal(firstDuplicate.index, firstDuplicate.message);
+          }
           alert("Imported " + imported + " row(s).");
         }
 
