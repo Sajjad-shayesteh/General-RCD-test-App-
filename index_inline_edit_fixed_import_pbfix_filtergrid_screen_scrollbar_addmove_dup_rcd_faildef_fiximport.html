@@ -500,12 +500,12 @@
           return (val == null ? "" : String(val)).trim().toLowerCase();
         }
 
-        function findLoggedDuplicateIndex(candidate) {
+        function findLoggedDuplicateIndex(candidate, records = LOGGED) {
           const candLocation = normalizeKeyValue(candidate.location);
           const candBoard = normalizeKeyValue(candidate.board);
           const candCb = normalizeKeyValue(candidate.cb);
 
-          return LOGGED.findIndex(r =>
+          return records.findIndex(r =>
             normalizeKeyValue(r.location) === candLocation &&
             normalizeKeyValue(r.board) === candBoard &&
             normalizeKeyValue(r.cb) === candCb
@@ -1779,6 +1779,7 @@
             alert("Sheet is empty.");
             return;
           }
+          const existingLogged = LOGGED.slice();
           let headerRowIndex = -1;
           let headerMap = {};
           for (let r = 0; r < Math.min(rows.length, 20); r++) {
@@ -1867,7 +1868,7 @@
               }
             }
 
-            const duplicateIndex = findLoggedDuplicateIndex(recBase);
+            const duplicateIndex = findLoggedDuplicateIndex(recBase, existingLogged);
             if (duplicateIndex !== -1) {
               if (!firstDuplicate) {
                 firstDuplicate = { index: duplicateIndex, message: buildDuplicateMessage(recBase) };
